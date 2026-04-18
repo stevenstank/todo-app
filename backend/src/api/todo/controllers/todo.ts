@@ -12,7 +12,11 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			return ctx.unauthorized('Authentication required');
 		}
 
-		const incomingData = ctx.request.body?.data ?? {};
+		ctx.request.body = ctx.request.body ?? {};
+		ctx.request.body.data = ctx.request.body.data ?? {};
+		ctx.request.body.data.user = authUser.id;
+
+		const incomingData = ctx.request.body.data;
 		const { user: _ignoredUser, ...safeData } = incomingData;
 
 		const todo = await strapi.entityService.create('api::todo.todo', {
@@ -32,39 +36,84 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			return ctx.unauthorized('Authentication required');
 		}
 
-		const sanitizedQuery = await this.sanitizeQuery(ctx);
-
 		const ownershipFilter = {
 			user: {
-				id: {
-					$eq: authUser.id,
-				},
+				id: authUser.id,
 			},
 		};
 
-		const mergedFilters = sanitizedQuery.filters
+		const existingFilters = ctx.query?.filters;
+
+		ctx.query = {
+			...ctx.query,
+			filters: existingFilters
 			? {
-					$and: [sanitizedQuery.filters, ownershipFilter],
+					$and: [existingFilters, ownershipFilter],
 			  }
-			: ownershipFilter;
+			: ownershipFilter,
+		};
+
+		const sanitizedQuery = await this.sanitizeQuery(ctx);
+		const mergedFilters = sanitizedQuery.filters;
 
 		const todos = await strapi.entityService.findMany('api::todo.todo', {
 			...sanitizedQuery,
 			filters: mergedFilters,
+			populate: {
+				...(typeof sanitizedQuery.populate === 'object' && sanitizedQuery.populate
+					? sanitizedQuery.populate
+					: {}),
+				user: true,
+			},
 		});
 
-		const total = await strapi.entityService.count('api::todo.todo', {
-			filters: mergedFilters,
+		const ownedTodos = (Array.isArray(todos) ? todos : []).filter((todo: any) => {
+			const todoOwnerId =
+				typeof todo?.user === 'object' && todo.user ? todo.user.id : todo?.user;
+
+			return todoOwnerId === authUser.id;
 		});
+
+		const total = ownedTodos.length;
 
 		const pagination = {
 			page: 1,
-			pageSize: Array.isArray(todos) ? todos.length : 0,
+			pageSize: ownedTodos.length,
 			pageCount: 1,
 			total,
 		};
 
-		return this.transformResponse(todos, { pagination });
+		return this.transformResponse(ownedTodos, { pagination });
+	},
+
+	async findOne(ctx) {
+		const authUser = ctx.state.user;
+
+		if (!authUser) {
+			return ctx.unauthorized('Authentication required');
+		}
+
+		const todoId = ctx.params.id;
+		const existingTodo = (await strapi.entityService.findOne('api::todo.todo', todoId, {
+			populate: {
+				user: true,
+			},
+		})) as any;
+
+		if (!existingTodo) {
+			return ctx.notFound('Todo not found');
+		}
+
+		const todoOwnerId =
+			typeof existingTodo?.user === 'object' && existingTodo.user
+				? existingTodo.user.id
+				: existingTodo?.user;
+
+		if (todoOwnerId !== authUser.id) {
+			return ctx.forbidden('Not your todo');
+		}
+
+		return this.transformResponse(existingTodo);
 	},
 
 	async update(ctx) {
@@ -91,7 +140,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 				: existingTodo?.user;
 
 		if (todoOwnerId !== authUser.id) {
-			return ctx.forbidden('You cannot update this todo');
+			return ctx.forbidden('Not your todo');
 		}
 
 		const incomingData = ctx.request.body?.data ?? {};
@@ -128,7 +177,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 				: existingTodo?.user;
 
 		if (todoOwnerId !== authUser.id) {
-			return ctx.forbidden('You cannot delete this todo');
+			return ctx.forbidden('Not your todo');
 		}
 
 		const deletedTodo = await strapi.entityService.delete('api::todo.todo', todoId);
