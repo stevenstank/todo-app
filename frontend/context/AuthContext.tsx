@@ -42,6 +42,14 @@ const parseStoredUser = (value: string | null): AuthUser => {
 	}
 };
 
+const writeTokenCookie = (token: string) => {
+	document.cookie = `token=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
+};
+
+const clearTokenCookie = () => {
+	document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const router = useRouter();
 	const [user, setUser] = useState<AuthUser>(null);
@@ -73,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const login = useCallback((nextJwt: string, nextUser: AuthUser) => {
 		window.localStorage.setItem(TOKEN_STORAGE_KEY, nextJwt);
 		window.localStorage.setItem(JWT_STORAGE_KEY, nextJwt);
+		writeTokenCookie(nextJwt);
 
 		if (nextUser) {
 			window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
@@ -88,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 		window.localStorage.removeItem(JWT_STORAGE_KEY);
 		window.localStorage.removeItem(USER_STORAGE_KEY);
+		clearTokenCookie();
 		setJwt(null);
 		setUser(null);
 		router.replace('/login');
