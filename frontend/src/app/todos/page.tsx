@@ -4,16 +4,23 @@ import { fetchTodosServer } from '@/lib/server/todos';
 
 export const dynamic = 'force-dynamic';
 
-export default async function TodosPage() {
+export default async function TodosPage({
+  searchParams,
+}: {
+  searchParams?: { notice?: string };
+}) {
   const result = await fetchTodosServer();
 
+  const noticeMessage =
+    searchParams?.notice === 'already-signed-in' ? 'You are already signed in' : undefined;
+
   if (result.status === 401) {
-    redirect('/login');
+    redirect('/signin');
   }
 
   if (result.error) {
     throw new Error(result.error);
   }
 
-  return <TodosClient initialTodos={result.data} />;
+  return <TodosClient initialTodos={result.data} noticeMessage={noticeMessage} />;
 }

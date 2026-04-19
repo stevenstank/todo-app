@@ -41,6 +41,10 @@ const getOwnerId = (todo: any): number | null => {
 	return null;
 };
 
+const checkOwnership = (todo: any, userId: number): boolean => getOwnerId(todo) === userId;
+
+const isDebug = process.env.NODE_ENV !== 'production';
+
 const stripUserRelation = <T extends Record<string, unknown>>(todo: T): T => {
 	if (!todo || typeof todo !== 'object') {
 		return todo;
@@ -51,18 +55,46 @@ const stripUserRelation = <T extends Record<string, unknown>>(todo: T): T => {
 };
 
 const findOwnedTodoOrFail = async (ctx: any, todoId: string | number, authUserId: number) => {
-	const todo = await strapi.entityService.findOne('api::todo.todo', todoId, {
-		populate: { user: true },
-	});
+	const normalized = String(todoId);
+	const numericCandidate = Number(normalized);
+
+	let todo: any = null;
+
+	if (Number.isInteger(numericCandidate) && normalized === String(numericCandidate)) {
+		todo = await strapi.entityService.findOne('api::todo.todo', numericCandidate, {
+			populate: { user: true },
+		});
+	}
+
+	if (!todo) {
+		const byDocumentId = await strapi.entityService.findMany('api::todo.todo', {
+			filters: {
+				documentId: {
+					$eq: normalized,
+				},
+			} as any,
+			populate: { user: true },
+		});
+
+		if (Array.isArray(byDocumentId) && byDocumentId.length > 0) {
+			todo = byDocumentId[0];
+		}
+	}
 
 	if (!todo) {
 		ctx.notFound('Todo not found');
 		return null;
 	}
 
-	if (getOwnerId(todo) !== authUserId) {
+	if (!checkOwnership(todo, authUserId)) {
 		ctx.forbidden('You are not allowed to access this todo');
 		return null;
+	}
+
+	if (isDebug) {
+		strapi.log.info(
+			`[todo.resolve] requestIdentifier=${normalized} resolvedId=${todo?.id ?? 'unknown'} resolvedDocumentId=${todo?.documentId ?? 'unknown'} userId=${authUserId}`
+		);
 	}
 
 	return todo;
@@ -86,7 +118,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			} as any,
 		});
 
-		return this.transformResponse(todo);
+		return this.transformResponse(stripUserRelation(todo as Record<string, unknown>));
 	},
 
 	async find(ctx) {
@@ -96,9 +128,24 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			return ctx.unauthorized('Authentication required');
 		}
 
-		// Keep both patterns because relation filtering has been inconsistent in this project.
 		const ownershipFilter = {
-			$or: [{ user: authUser.id }, { user: { id: authUser.id } }],
+			$or: [
+				{
+					user: authUser.id,
+				},
+				{
+					user: {
+						id: authUser.id,
+					},
+				},
+				{
+					user: {
+						id: {
+							$eq: authUser.id,
+						},
+					},
+				},
+			],
 		};
 		const existingFilters = ctx.query?.filters;
 
@@ -125,6 +172,15 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		// Defense in depth: verify ownership after query to prevent cross-user leakage.
 		const ownedTodos = todos.filter((todo) => getOwnerId(todo) === authUser.id);
 		const sanitizedTodos = ownedTodos.map((todo) => stripUserRelation(todo as Record<string, unknown>));
+
+		if (isDebug) {
+			strapi.log.info(
+				`[todo.find] userId=${authUser.id} total=${sanitizedTodos.length} ids=${sanitizedTodos
+					.map((todo: any) => todo?.id)
+					.filter((id: unknown) => typeof id === 'number')
+					.join(',')}`
+			);
+		}
 
 		return this.transformResponse(sanitizedTodos, {
 			pagination: {
@@ -172,7 +228,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			data: safeData as any,
 		});
 
-		return this.transformResponse(updatedTodo);
+		return this.transformResponse(stripUserRelation(updatedTodo as Record<string, unknown>));
 	},
 
 	async delete(ctx) {
@@ -189,6 +245,32 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const deletedTodo = await strapi.entityService.delete('api::todo.todo', existingTodo.id);
-		return this.transformResponse(deletedTodo);
+
+		if (isDebug) {
+			const verify = await strapi.entityService.findMany('api::todo.todo', {
+				filters: {
+					id: {
+						$eq: existingTodo.id,
+					},
+					user: {
+						id: {
+							$eq: authUser.id,
+						},
+					},
+				},
+				populate: {
+					user: {
+						fields: ['id'],
+					},
+				},
+			});
+
+			const remaining = Array.isArray(verify) ? verify.length : 0;
+			strapi.log.info(
+				`[todo.delete] userId=${authUser.id} todoId=${existingTodo.id} remaining=${remaining}`
+			);
+		}
+
+		return this.transformResponse(stripUserRelation(deletedTodo as Record<string, unknown>));
 	},
 }));

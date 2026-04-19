@@ -4,23 +4,26 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   createTodoRequest,
+  fetchTodosRequest,
   deleteTodoRequest,
   toggleTodoRequest,
   TodoActionError,
   TodoUnauthorizedError,
 } from '@/actions/todos';
-import type { TodoItem, TodoUiItem } from '@/types/todo';
+import type { TodoIdentifier, TodoItem, TodoUiItem } from '@/types/todo';
 import { mapTodoApiItem } from '@/types/todo';
 
 export const useTodos = (initialTodos: TodoItem[]) => {
   const router = useRouter();
-  const nextTempIdRef = useRef(-1);
+  const nextTempIdRef = useRef(1);
+  const createRequestSeqRef = useRef(0);
+  const deleteRequestSeqRef = useRef(0);
 
   const [newTodo, setNewTodo] = useState('');
   const [todos, setTodos] = useState<TodoUiItem[]>(initialTodos);
   const [isCreating, setIsCreating] = useState(false);
-  const [updatingTodoId, setUpdatingTodoId] = useState<number | null>(null);
-  const [deletingTodoIds, setDeletingTodoIds] = useState<number[]>([]);
+  const [updatingTodoId, setUpdatingTodoId] = useState<TodoIdentifier | null>(null);
+  const [deletingTodoIds, setDeletingTodoIds] = useState<TodoIdentifier[]>([]);
   const [createError, setCreateError] = useState('');
   const [actionError, setActionError] = useState('');
 
@@ -30,12 +33,19 @@ export const useTodos = (initialTodos: TodoItem[]) => {
 
   const getNextTempId = () => {
     const next = nextTempIdRef.current;
-    nextTempIdRef.current -= 1;
-    return next;
+    nextTempIdRef.current += 1;
+    return `temp-${next}`;
   };
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (isCreating) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[todos][create][skipped-duplicate-submit]');
+      }
+      return;
+    }
 
     const title = newTodo.trim();
 
@@ -59,33 +69,30 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     setNewTodo('');
 
     try {
-      const payload = await createTodoRequest(title);
-      const createdTodo = mapTodoApiItem(payload.data!);
+      const requestId = ++createRequestSeqRef.current;
 
-      setTodos((prev) => {
-        const tempIndex = prev.findIndex((item) => item.id === tempId);
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[todos][create][start]', {
+          requestId,
+          title,
+          beforeIds: todos.map((item) => item.id),
+        });
+      }
 
-        if (tempIndex === -1) {
-          if (prev.some((item) => item.id === createdTodo.id)) {
-            return prev;
-          }
+      await createTodoRequest(title);
+      const latest = await fetchTodosRequest('after-create');
+      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+      setTodos(latestMapped);
 
-          return [createdTodo, ...prev];
-        }
-
-        if (prev.some((item) => item.id === createdTodo.id && item.id !== tempId)) {
-          return prev.filter((item) => item.id !== tempId);
-        }
-
-        const next = [...prev];
-        next[tempIndex] = createdTodo;
-        return next;
-      });
-
-      router.refresh();
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[todos][create][end]', {
+          requestId,
+          afterIds: latestMapped.map((item) => item.id),
+        });
+      }
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
-        router.replace('/login');
+        router.replace('/signin');
         router.refresh();
         return;
       }
@@ -112,7 +119,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       );
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
-        router.replace('/login');
+        router.replace('/signin');
         router.refresh();
         return;
       }
@@ -123,50 +130,46 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     }
   };
 
-  const handleDelete = async (todoId: number) => {
+  const handleDelete = async (todoId: TodoIdentifier) => {
     if (deletingTodoIds.includes(todoId)) {
       return;
     }
 
     setActionError('');
 
-    let removedTodo: TodoUiItem | null = null;
-    let removedIndex = -1;
-
     setDeletingTodoIds((prev) => [...prev, todoId]);
-    setTodos((prev) => {
-      removedIndex = prev.findIndex((item) => item.id === todoId);
-      removedTodo = removedIndex >= 0 ? prev[removedIndex] : null;
-      return prev.filter((item) => item.id !== todoId);
-    });
-
-    if (!removedTodo) {
-      setDeletingTodoIds((prev) => prev.filter((id) => id !== todoId));
-      return;
-    }
 
     try {
+      const requestId = ++deleteRequestSeqRef.current;
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[todos][delete][start]', {
+          requestId,
+          todoId,
+          beforeIds: todos.map((item) => item.id),
+        });
+      }
+
       await deleteTodoRequest(todoId);
-      router.refresh();
+      const latest = await fetchTodosRequest('after-delete');
+      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+      setTodos(latestMapped);
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[todos][delete][end]', {
+          requestId,
+          todoId,
+          afterIds: latestMapped.map((item) => item.id),
+        });
+      }
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
-        router.replace('/login');
+        router.replace('/signin');
         router.refresh();
         return;
       }
 
       setActionError(error instanceof TodoActionError ? error.message : 'Could not delete todo');
-
-      setTodos((prev) => {
-        if (!removedTodo || prev.some((item) => item.id === removedTodo?.id)) {
-          return prev;
-        }
-
-        const next = [...prev];
-        const insertIndex = Math.min(Math.max(removedIndex, 0), next.length);
-        next.splice(insertIndex, 0, removedTodo);
-        return next;
-      });
     } finally {
       setDeletingTodoIds((prev) => prev.filter((id) => id !== todoId));
     }

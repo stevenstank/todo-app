@@ -11,15 +11,27 @@ import {
 	useState,
 } from 'react';
 import { UNAUTHORIZED_EVENT } from '@/lib/api';
+import { AuthUser, loginApi, logoutApi, registerApi } from '@/lib/auth-api';
 
-type AuthUser = Record<string, unknown> | null;
+type LoginInput = {
+	email: string;
+	password: string;
+};
+
+type RegisterInput = {
+	username: string;
+	email: string;
+	password: string;
+};
 
 type AuthContextValue = {
 	user: AuthUser;
 	jwt: string | null;
+	isAuthenticated: boolean;
 	loading: boolean;
-	login: (nextJwt: string, nextUser: AuthUser) => void;
-	logout: () => void;
+	login: (input: LoginInput) => Promise<void>;
+	register: (input: RegisterInput) => Promise<void>;
+	logout: () => Promise<void>;
 	loadUserFromStorage: () => void;
 };
 
@@ -50,6 +62,26 @@ const clearTokenCookie = () => {
 	document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
 };
 
+const persistAuthState = (nextJwt: string, nextUser: AuthUser) => {
+	window.localStorage.setItem(TOKEN_STORAGE_KEY, nextJwt);
+	window.localStorage.setItem(JWT_STORAGE_KEY, nextJwt);
+	writeTokenCookie(nextJwt);
+
+	if (nextUser) {
+		window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+		return;
+	}
+
+	window.localStorage.removeItem(USER_STORAGE_KEY);
+};
+
+const clearPersistedAuthState = () => {
+	window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+	window.localStorage.removeItem(JWT_STORAGE_KEY);
+	window.localStorage.removeItem(USER_STORAGE_KEY);
+	clearTokenCookie();
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const router = useRouter();
 	const [user, setUser] = useState<AuthUser>(null);
@@ -78,29 +110,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		setLoading(false);
 	}, []);
 
-	const login = useCallback((nextJwt: string, nextUser: AuthUser) => {
-		window.localStorage.setItem(TOKEN_STORAGE_KEY, nextJwt);
-		window.localStorage.setItem(JWT_STORAGE_KEY, nextJwt);
-		writeTokenCookie(nextJwt);
-
-		if (nextUser) {
-			window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
-		} else {
-			window.localStorage.removeItem(USER_STORAGE_KEY);
-		}
-
-		setJwt(nextJwt);
-		setUser(nextUser);
+	const login = useCallback(async (input: LoginInput) => {
+		const session = await loginApi(input);
+		persistAuthState(session.jwt, session.user);
+		setJwt(session.jwt);
+		setUser(session.user);
 	}, []);
 
-	const logout = useCallback(() => {
-		window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-		window.localStorage.removeItem(JWT_STORAGE_KEY);
-		window.localStorage.removeItem(USER_STORAGE_KEY);
-		clearTokenCookie();
+	const register = useCallback(async (input: RegisterInput) => {
+		const session = await registerApi(input);
+		persistAuthState(session.jwt, session.user);
+		setJwt(session.jwt);
+		setUser(session.user);
+	}, []);
+
+	const logout = useCallback(async () => {
+		await logoutApi().catch(() => null);
+		clearPersistedAuthState();
 		setJwt(null);
 		setUser(null);
-		router.replace('/login');
+		router.replace('/signin');
 	}, [router]);
 
 	useEffect(() => {
@@ -123,12 +152,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		() => ({
 			user,
 			jwt,
+			isAuthenticated: Boolean(jwt),
 			loading,
 			login,
+			register,
 			logout,
 			loadUserFromStorage,
 		}),
-		[user, jwt, loading, login, logout, loadUserFromStorage]
+		[user, jwt, loading, login, register, logout, loadUserFromStorage]
 	);
 
 	if (loading) {

@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
 
   const nextResponse = NextResponse.json(
     {
+      jwt: payload.jwt,
       user: payload.user ?? null,
     },
     { status: 200 }

@@ -6,16 +6,16 @@ import { useAuth } from '@root/context/AuthContext';
 
 export const useRequireAuth = () => {
   const router = useRouter();
-  const { jwt, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
-    if (!loading && !jwt) {
-      router.replace('/login');
+    if (!loading && !isAuthenticated) {
+      router.replace('/signin');
     }
-  }, [loading, jwt, router]);
+  }, [loading, isAuthenticated, router]);
 
   return {
-    isAuthenticated: Boolean(jwt),
-    isCheckingAuth: loading || !jwt,
+    isAuthenticated,
+    isCheckingAuth: loading,
   };
 };

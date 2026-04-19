@@ -3,7 +3,13 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useMemo, useState } from 'react';
-import { getResponseErrorMessage } from '@/lib/error-handler';
+import { useAuth } from '@root/context/AuthContext';
+import AuthField from '@root/components/auth/AuthField';
+import AuthFormCard from '@root/components/auth/AuthFormCard';
+import AuthSubmitButton from '@root/components/auth/AuthSubmitButton';
+import FormMessage from '@root/components/auth/FormMessage';
+import GuestOnlyGate from '@root/components/auth/GuestOnlyGate';
+import PasswordField from '@root/components/auth/PasswordField';
 
 type SignupFormState = {
   username: string;
@@ -19,6 +25,7 @@ const initialForm: SignupFormState = {
 
 export default function SignupPage() {
   const router = useRouter();
+  const { register } = useAuth();
   const [form, setForm] = useState<SignupFormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -53,26 +60,13 @@ export default function SignupPage() {
     setErrorMessage('');
 
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        body: JSON.stringify({
-          username: form.username.trim(),
-          email: form.email.trim(),
-          password: form.password,
-        }),
+      await register({
+        username: form.username,
+        email: form.email,
+        password: form.password,
       });
 
-      const payload = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(getResponseErrorMessage(payload, 'Signup failed'));
-      }
-
-      router.replace('/todos');
+      router.replace('/dashboard');
       router.refresh();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
@@ -82,79 +76,59 @@ export default function SignupPage() {
   };
 
   return (
-    <main className="flex min-h-[calc(100vh-73px)] items-center justify-center px-4 py-10">
-      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <div className="mb-6 space-y-1">
-          <h1 className="text-2xl font-semibold text-slate-900">Create Account</h1>
-          <p className="text-sm text-slate-500">Sign up to start managing your todos.</p>
-        </div>
-
+    <GuestOnlyGate>
+      <AuthFormCard
+        title="Create Account"
+        description="Set up your account and start organizing your tasks."
+        footer={
+          <p>
+            Already have an account?{' '}
+            <Link href="/signin" className="font-medium text-slate-900 underline-offset-2 hover:underline">
+              Login
+            </Link>
+          </p>
+        }
+      >
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <div className="space-y-1.5">
-            <label htmlFor="username" className="text-sm font-medium text-slate-700">
-              Username
-            </label>
-            <input
-              id="username"
-              type="text"
-              value={form.username}
-              onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
-              placeholder="yourname"
-              autoComplete="username"
-            />
-          </div>
+          <AuthField
+            id="username"
+            label="Username"
+            type="text"
+            value={form.username}
+            onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
+            placeholder="yourname"
+            autoComplete="username"
+          />
 
-          <div className="space-y-1.5">
-            <label htmlFor="email" className="text-sm font-medium text-slate-700">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
-              placeholder="you@example.com"
-              autoComplete="email"
-            />
-          </div>
+          <AuthField
+            id="email"
+            label="Email"
+            type="email"
+            value={form.email}
+            onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+            placeholder="you@example.com"
+            autoComplete="email"
+          />
 
-          <div className="space-y-1.5">
-            <label htmlFor="password" className="text-sm font-medium text-slate-700">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
-              placeholder="Minimum 6 characters"
-              autoComplete="new-password"
-            />
-          </div>
+          <PasswordField
+            id="password"
+            label="Password"
+            value={form.password}
+            onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+            placeholder="Minimum 6 characters"
+            autoComplete="new-password"
+          />
 
-          {(errorMessage || validationMessage) && (
-            <p className="text-sm text-red-600">{errorMessage || validationMessage}</p>
-          )}
+          <FormMessage message={errorMessage || validationMessage} />
 
-          <button
-            type="submit"
+          <AuthSubmitButton
+            label="Create Account"
+            loadingLabel="Creating account..."
+            isLoading={isSubmitting}
             disabled={isSubmitDisabled}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {isSubmitting ? 'Creating account...' : 'Create account'}
-          </button>
+          />
         </form>
-
-        <p className="mt-5 text-sm text-slate-600">
-          Already have an account?{' '}
-          <Link href="/login" className="font-medium text-slate-900 underline-offset-2 hover:underline">
-            Login
-          </Link>
-        </p>
-      </section>
-    </main>
+      </AuthFormCard>
+    </GuestOnlyGate>
   );
 }

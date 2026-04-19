@@ -5,8 +5,37 @@ type StrapiAuthPayload = {
   jwt?: string;
   user?: Record<string, unknown>;
   error?: {
+    details?: unknown;
     message?: string;
   };
+};
+
+const USER_EXISTS_MESSAGE = 'User already exists. Please log in instead.';
+
+const readDuplicateUserError = (value: unknown): boolean => {
+  if (!value) {
+    return false;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase();
+    return (
+      normalized.includes('already taken') ||
+      normalized.includes('already exists') ||
+      normalized.includes('already been taken') ||
+      normalized.includes('email or username are already taken')
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => readDuplicateUserError(entry));
+  }
+
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).some((entry) => readDuplicateUserError(entry));
+  }
+
+  return false;
 };
 
 export async function POST(request: NextRequest) {
@@ -56,10 +85,12 @@ export async function POST(request: NextRequest) {
   const payload = (await response.json().catch(() => ({}))) as StrapiAuthPayload;
 
   if (!response.ok || !payload.jwt) {
+    const isUserExistsError = readDuplicateUserError(payload?.error?.message) || readDuplicateUserError(payload?.error?.details);
+
     return NextResponse.json(
       {
         error: {
-          message: payload?.error?.message ?? 'Signup failed',
+          message: isUserExistsError ? USER_EXISTS_MESSAGE : payload?.error?.message ?? 'Signup failed',
         },
       },
       { status: response.status || 400 }
@@ -68,6 +99,7 @@ export async function POST(request: NextRequest) {
 
   const nextResponse = NextResponse.json(
     {
+      jwt: payload.jwt,
       user: payload.user ?? null,
     },
     { status: 201 }

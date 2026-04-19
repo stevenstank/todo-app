@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import Navbar from "@root/components/layout/Navbar";
+import Navbar from "@root/components/Navbar";
 import RouteProgress from "@root/components/ui/RouteProgress";
+import Providers from "./providers";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -30,12 +31,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-slate-50 text-slate-900 antialiased`}
       >
-        <RouteProgress />
-        <div className="min-h-screen">
-          <Navbar />
+        <Providers>
+          <RouteProgress />
+          <div className="min-h-screen">
+            <Navbar />
 
-          <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
-        </div>
+            <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
+          </div>
+        </Providers>
       </body>
     </html>
   );

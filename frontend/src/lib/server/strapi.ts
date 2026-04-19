@@ -30,13 +30,7 @@ const decodeJwtPayload = (token: string): JwtPayload | null => {
   }
 };
 
-export const getAuthUserId = (): number | null => {
-  const token = getAuthToken();
-
-  if (!token) {
-    return null;
-  }
-
+export const getUserIdFromToken = (token: string): number | null => {
   const payload = decodeJwtPayload(token);
 
   if (typeof payload?.id === 'number') {
@@ -53,6 +47,16 @@ export const getAuthUserId = (): number | null => {
   }
 
   return null;
+};
+
+export const getAuthUserId = (): number | null => {
+  const token = getAuthToken();
+
+  if (!token) {
+    return null;
+  }
+
+  return getUserIdFromToken(token);
 };
 
 export const getStrapiUrl = (path: string): string =>

@@ -1,11 +1,11 @@
-import type { TodoUiItem } from '@/types/todo';
+import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
 
 type TodoListProps = {
   todos: TodoUiItem[];
-  updatingTodoId: number | null;
-  deletingTodoIds: number[];
+  updatingTodoId: TodoIdentifier | null;
+  deletingTodoIds: TodoIdentifier[];
   onToggle: (todo: TodoUiItem) => void;
-  onDelete: (todoId: number) => void;
+  onDelete: (todoId: TodoIdentifier) => void;
 };
 
 export default function TodoList({

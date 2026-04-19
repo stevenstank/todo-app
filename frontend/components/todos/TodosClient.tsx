@@ -11,8 +11,10 @@ import { useTodos } from '@/lib/todos/useTodos';
 
 export default function TodosClient({
   initialTodos,
+  noticeMessage,
 }: {
   initialTodos: TodoItem[];
+  noticeMessage?: string;
 }) {
   const router = useRouter();
   const [isLoggingOut, startLogoutTransition] = useTransition();
@@ -66,6 +68,16 @@ export default function TodosClient({
         </header>
 
         <div className="space-y-5 px-5 py-6">
+          {noticeMessage ? (
+            <p
+              role="status"
+              aria-live="polite"
+              className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+            >
+              {noticeMessage}
+            </p>
+          ) : null}
+
           <h2 className="text-2xl font-semibold text-slate-900">Your Todos</h2>
 
           <TodoForm
