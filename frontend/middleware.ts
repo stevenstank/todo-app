@@ -5,15 +5,15 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith('/dashboard')) {
+  if (pathname.startsWith('/todos')) {
     if (!token) {
-      return NextResponse.redirect(new URL('/signin', request.url));
+      return NextResponse.redirect(new URL('/login', request.url));
     }
   }
 
-  if (pathname.startsWith('/signin') || pathname.startsWith('/signup')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/signup')) {
     if (token) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+      return NextResponse.redirect(new URL('/todos', request.url));
     }
   }
 
@@ -21,5 +21,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard', '/signin', '/signup'],
+  matcher: ['/todos/:path*', '/login', '/signup'],
 };

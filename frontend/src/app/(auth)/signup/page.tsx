@@ -3,8 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useMemo, useState } from 'react';
-import { registerUser } from '@/lib/api';
-import { useAuth } from '@root/context/AuthContext';
+import { getResponseErrorMessage } from '@/lib/error-handler';
 
 type SignupFormState = {
   username: string;
@@ -20,7 +19,6 @@ const initialForm: SignupFormState = {
 
 export default function SignupPage() {
   const router = useRouter();
-  const { login } = useAuth();
   const [form, setForm] = useState<SignupFormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -55,18 +53,27 @@ export default function SignupPage() {
     setErrorMessage('');
 
     try {
-      console.log('Calling Strapi API...');
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          username: form.username.trim(),
+          email: form.email.trim(),
+          password: form.password,
+        }),
+      });
 
-      const data = await registerUser(form.username.trim(), form.email.trim(), form.password);
+      const payload = await res.json().catch(() => ({}));
 
-      if (!data?.jwt) {
-        setErrorMessage('Signup failed');
-        return;
+      if (!res.ok) {
+        throw new Error(getResponseErrorMessage(payload, 'Signup failed'));
       }
 
-      login(data.jwt, data.user ?? null);
-      window.localStorage.setItem('jwt', data.jwt);
       router.replace('/todos');
+      router.refresh();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
     } finally {

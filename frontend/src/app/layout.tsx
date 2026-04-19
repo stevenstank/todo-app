@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { AuthProvider } from "@root/context/AuthContext";
 import Navbar from "@root/components/layout/Navbar";
 import RouteProgress from "@root/components/ui/RouteProgress";
 import "./globals.css";
@@ -32,13 +31,11 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-slate-50 text-slate-900 antialiased`}
       >
         <RouteProgress />
-        <AuthProvider>
-          <div className="min-h-screen">
-            <Navbar />
+        <div className="min-h-screen">
+          <Navbar />
 
-            <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
-          </div>
-        </AuthProvider>
+          <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
+        </div>
       </body>
     </html>
   );

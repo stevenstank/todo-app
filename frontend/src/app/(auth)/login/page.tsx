@@ -3,8 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useMemo, useState } from 'react';
-import { loginUser } from '@/lib/api';
-import { useAuth } from '@root/context/AuthContext';
+import { getResponseErrorMessage } from '@/lib/error-handler';
 
 type LoginFormState = {
   email: string;
@@ -21,7 +20,6 @@ const inputClassName =
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
   const [form, setForm] = useState<LoginFormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -52,18 +50,26 @@ export default function LoginPage() {
     setErrorMessage('');
 
     try {
-      console.log('Calling Strapi API...');
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          email: form.email.trim(),
+          password: form.password,
+        }),
+      });
 
-      const data = await loginUser(form.email.trim(), form.password);
+      const payload = await res.json().catch(() => ({}));
 
-      if (!data?.jwt) {
-        setErrorMessage('Login failed');
-        return;
+      if (!res.ok) {
+        throw new Error(getResponseErrorMessage(payload, 'Login failed'));
       }
 
-      login(data.jwt, data.user ?? null);
-      window.localStorage.setItem('jwt', data.jwt);
       router.replace('/todos');
+      router.refresh();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
     } finally {
