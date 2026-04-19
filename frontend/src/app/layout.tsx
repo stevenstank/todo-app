@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { AuthProvider } from "@root/context/AuthContext";
 import Navbar from "@root/components/layout/Navbar";
 import "./globals.css";
 
@@ -29,11 +30,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-slate-50 text-slate-900 antialiased`}
       >
-        <div className="min-h-screen">
-          <Navbar />
+        <AuthProvider>
+          <div className="min-h-screen">
+            <Navbar />
 
-          <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
-        </div>
+            <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );
