@@ -128,31 +128,23 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			return ctx.unauthorized('Authentication required');
 		}
 
+		const incomingFilters = ctx.query?.filters;
 		const ownershipFilter = {
-			$or: [
-				{
-					user: authUser.id,
-				},
-				{
-					user: {
-						id: authUser.id,
-					},
-				},
-				{
-					user: {
-						id: {
-							$eq: authUser.id,
-						},
-					},
-				},
-			],
+			user: {
+				id: authUser.id,
+			},
 		};
-		const existingFilters = ctx.query?.filters;
 
 		ctx.query = {
 			...ctx.query,
-			filters: existingFilters ? { $and: [existingFilters, ownershipFilter] } : ownershipFilter,
+			filters: ownershipFilter,
 		};
+
+		if (isDebug) {
+			strapi.log.info(
+				`[todo.find.filters] userId=${authUser.id} incoming=${JSON.stringify(incomingFilters ?? null)} applied=${JSON.stringify(ownershipFilter)}`
+			);
+		}
 
 		const sanitizedQuery = await this.sanitizeQuery(ctx);
 		const results = await strapi.entityService.findMany('api::todo.todo', {
