@@ -12,6 +12,7 @@
     "start": "strapi start",
     "strapi": "strapi",
     "verify:ownership": "node scripts/verify-todo-ownership.mjs",
+    "verify:tree": "node scripts/verify-todo-tree-performance.mjs",
     "upgrade": "npx @strapi/upgrade latest",
     "upgrade:dry": "npx @strapi/upgrade latest --dry"
   },

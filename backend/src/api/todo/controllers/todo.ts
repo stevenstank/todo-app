@@ -266,46 +266,17 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			return ctx.unauthorized('Authentication required');
 		}
 
-		const incomingFilters = ctx.query?.filters;
-		const ownershipFilter = {
-			user: {
-				id: authUser.id,
-			},
+		const treeService = strapi.service('api::todo.todo') as {
+			findUserTodoTree: (userId: number, options?: { maxLevels?: number }) => Promise<any[]>;
 		};
 
-		ctx.query = {
-			...ctx.query,
-			filters: ownershipFilter,
-		};
+		const maxLevels = 2;
+		const treeTodos = await treeService.findUserTodoTree(authUser.id, { maxLevels });
+		const sanitizedTodos = treeTodos.map((todo) => stripUserRelation(todo as Record<string, unknown>));
 
 		if (isDebug) {
 			strapi.log.info(
-				`[todo.find.filters] userId=${authUser.id} incoming=${JSON.stringify(incomingFilters ?? null)} applied=${JSON.stringify(ownershipFilter)}`
-			);
-		}
-
-		const sanitizedQuery = await this.sanitizeQuery(ctx);
-		const results = await strapi.entityService.findMany('api::todo.todo', {
-			...sanitizedQuery,
-			populate: {
-				...(typeof sanitizedQuery.populate === 'object' && sanitizedQuery.populate
-					? sanitizedQuery.populate
-					: {}),
-				user: {
-					fields: ['id'],
-				},
-			},
-		});
-
-		const todos = Array.isArray(results) ? results : [];
-
-		// Defense in depth: verify ownership after query to prevent cross-user leakage.
-		const ownedTodos = todos.filter((todo) => getOwnerId(todo) === authUser.id);
-		const sanitizedTodos = ownedTodos.map((todo) => stripUserRelation(todo as Record<string, unknown>));
-
-		if (isDebug) {
-			strapi.log.info(
-				`[todo.find] userId=${authUser.id} total=${sanitizedTodos.length} ids=${sanitizedTodos
+				`[todo.find] userId=${authUser.id} tree=true maxLevels=${maxLevels} roots=${sanitizedTodos.length} ids=${sanitizedTodos
 					.map((todo: any) => todo?.id)
 					.filter((id: unknown) => typeof id === 'number')
 					.join(',')}`
