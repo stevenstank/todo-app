@@ -19,11 +19,27 @@
       "type": "boolean",
       "default": false
     },
+    "depth": {
+      "type": "integer",
+      "default": 0
+    },
     "user": {
       "type": "relation",
       "relation": "manyToOne",
       "target": "plugin::users-permissions.user",
       "inversedBy": "todos"
+    },
+    "parent": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::todo.todo",
+      "inversedBy": "children"
+    },
+    "children": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::todo.todo",
+      "mappedBy": "parent"
     }
   }
 }

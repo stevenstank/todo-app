@@ -16,13 +16,85 @@ const getAuthUser = (ctx: any): AuthUser | null => {
 	return { id: user.id };
 };
 
-const withoutUserField = (data: unknown): Record<string, unknown> => {
+const withoutRestrictedFields = (data: unknown): Record<string, unknown> => {
 	if (!data || typeof data !== 'object' || Array.isArray(data)) {
 		return {};
 	}
 
-	const { user: _ignoredUser, ...safeData } = data as Record<string, unknown>;
+	const {
+		user: _ignoredUser,
+		depth: _ignoredDepth,
+		children: _ignoredChildren,
+		...safeData
+	} = data as Record<string, unknown>;
 	return safeData;
+};
+
+const hasOwn = (obj: Record<string, unknown>, key: string): boolean =>
+	Object.prototype.hasOwnProperty.call(obj, key);
+
+const getRelationId = (value: unknown): number | null => {
+	if (typeof value === 'number' && Number.isInteger(value)) {
+		return value;
+	}
+
+	if (value && typeof value === 'object' && typeof (value as any).id === 'number') {
+		return (value as any).id;
+	}
+
+	return null;
+};
+
+const parseIdentifier = (value: unknown): string | number | null => {
+	if (typeof value === 'number' && Number.isInteger(value)) {
+		return value;
+	}
+
+	if (typeof value === 'string' && value.trim().length > 0) {
+		return value.trim();
+	}
+
+	if (!value || typeof value !== 'object') {
+		return null;
+	}
+
+	const maybeObject = value as Record<string, unknown>;
+
+	if (typeof maybeObject.id === 'number' && Number.isInteger(maybeObject.id)) {
+		return maybeObject.id;
+	}
+
+	if (typeof maybeObject.documentId === 'string' && maybeObject.documentId.trim().length > 0) {
+		return maybeObject.documentId.trim();
+	}
+
+	if (Array.isArray(maybeObject.connect) && maybeObject.connect.length > 0) {
+		return parseIdentifier(maybeObject.connect[0]);
+	}
+
+	return null;
+};
+
+const extractParentInput = (
+	data: Record<string, unknown>
+): { provided: false } | { provided: true; value: number | string | null } | { provided: true; invalid: true } => {
+	if (!hasOwn(data, 'parent')) {
+		return { provided: false };
+	}
+
+	const rawParent = data.parent;
+
+	if (rawParent === null) {
+		return { provided: true, value: null };
+	}
+
+	const identifier = parseIdentifier(rawParent);
+
+	if (identifier === null) {
+		return { provided: true, invalid: true };
+	}
+
+	return { provided: true, value: identifier };
 };
 
 const getOwnerId = (todo: any): number | null => {
@@ -43,6 +115,70 @@ const getOwnerId = (todo: any): number | null => {
 
 const checkOwnership = (todo: any, userId: number): boolean => getOwnerId(todo) === userId;
 
+const resolveTodoByIdentifier = async (
+	identifier: number | string,
+	populate: Record<string, unknown> = { user: true }
+) => {
+	const normalized = String(identifier);
+	const numericCandidate = Number(normalized);
+
+	let todo: any = null;
+
+	if (Number.isInteger(numericCandidate) && normalized === String(numericCandidate)) {
+		todo = await strapi.entityService.findOne('api::todo.todo', numericCandidate, {
+			populate,
+		});
+	}
+
+	if (!todo) {
+		const byDocumentId = await strapi.entityService.findMany('api::todo.todo', {
+			filters: {
+				documentId: {
+					$eq: normalized,
+				},
+			} as any,
+			populate,
+		});
+
+		if (Array.isArray(byDocumentId) && byDocumentId.length > 0) {
+			todo = byDocumentId[0];
+		}
+	}
+
+	return todo;
+};
+
+const validateNoCircularParent = async (todoId: number, candidateParentId: number): Promise<boolean> => {
+	let cursorId: number | null = candidateParentId;
+	const visited = new Set<number>();
+
+	while (cursorId !== null) {
+		if (cursorId === todoId) {
+			return false;
+		}
+
+		if (visited.has(cursorId)) {
+			return false;
+		}
+
+		visited.add(cursorId);
+
+		const current = await strapi.entityService.findOne('api::todo.todo', cursorId, {
+			populate: {
+				parent: true,
+			},
+		});
+
+		if (!current) {
+			break;
+		}
+
+		cursorId = getRelationId((current as any).parent);
+	}
+
+	return true;
+};
+
 const isDebug = process.env.NODE_ENV !== 'production';
 
 const stripUserRelation = <T extends Record<string, unknown>>(todo: T): T => {
@@ -56,30 +192,7 @@ const stripUserRelation = <T extends Record<string, unknown>>(todo: T): T => {
 
 const findOwnedTodoOrFail = async (ctx: any, todoId: string | number, authUserId: number) => {
 	const normalized = String(todoId);
-	const numericCandidate = Number(normalized);
-
-	let todo: any = null;
-
-	if (Number.isInteger(numericCandidate) && normalized === String(numericCandidate)) {
-		todo = await strapi.entityService.findOne('api::todo.todo', numericCandidate, {
-			populate: { user: true },
-		});
-	}
-
-	if (!todo) {
-		const byDocumentId = await strapi.entityService.findMany('api::todo.todo', {
-			filters: {
-				documentId: {
-					$eq: normalized,
-				},
-			} as any,
-			populate: { user: true },
-		});
-
-		if (Array.isArray(byDocumentId) && byDocumentId.length > 0) {
-			todo = byDocumentId[0];
-		}
-	}
+	const todo = await resolveTodoByIdentifier(normalized, { user: true });
 
 	if (!todo) {
 		ctx.notFound('Todo not found');
@@ -109,11 +222,36 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const incomingData = ctx.request.body?.data;
-		const safeData = withoutUserField(incomingData);
+		const safeData = withoutRestrictedFields(incomingData);
+		const parentInput = extractParentInput(safeData);
+
+		if ('invalid' in parentInput && parentInput.invalid) {
+			return ctx.badRequest('Invalid parent relation payload');
+		}
+
+		let resolvedParentId: number | null = null;
+		let computedDepth = 0;
+
+		if (parentInput.provided && !('invalid' in parentInput) && parentInput.value !== null) {
+			const parentTodo = await resolveTodoByIdentifier(parentInput.value, { user: true });
+
+			if (!parentTodo) {
+				return ctx.badRequest('Parent todo not found');
+			}
+
+			if (!checkOwnership(parentTodo, authUser.id)) {
+				return ctx.forbidden('Parent todo does not belong to the authenticated user');
+			}
+
+			resolvedParentId = parentTodo.id;
+			computedDepth = (typeof (parentTodo as any).depth === 'number' ? (parentTodo as any).depth : 0) + 1;
+		}
 
 		const todo = await strapi.entityService.create('api::todo.todo', {
 			data: {
 				...(safeData as any),
+				parent: resolvedParentId,
+				depth: computedDepth,
 				user: authUser.id,
 			} as any,
 		});
@@ -214,7 +352,43 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const incomingData = ctx.request.body?.data;
-		const safeData = withoutUserField(incomingData);
+		const safeData = withoutRestrictedFields(incomingData);
+		const parentInput = extractParentInput(safeData);
+
+		if ('invalid' in parentInput && parentInput.invalid) {
+			return ctx.badRequest('Invalid parent relation payload');
+		}
+
+		if (parentInput.provided && !('invalid' in parentInput)) {
+			if (parentInput.value === null) {
+				(safeData as any).parent = null;
+				(safeData as any).depth = 0;
+			} else {
+				const parentTodo = await resolveTodoByIdentifier(parentInput.value, { user: true, parent: true });
+
+				if (!parentTodo) {
+					return ctx.badRequest('Parent todo not found');
+				}
+
+				if (!checkOwnership(parentTodo, authUser.id)) {
+					return ctx.forbidden('Parent todo does not belong to the authenticated user');
+				}
+
+				if (parentTodo.id === existingTodo.id) {
+					return ctx.badRequest('A todo cannot be its own parent');
+				}
+
+				const isValidHierarchy = await validateNoCircularParent(existingTodo.id, parentTodo.id);
+
+				if (!isValidHierarchy) {
+					return ctx.badRequest('Circular parent hierarchy is not allowed');
+				}
+
+				(safeData as any).parent = parentTodo.id;
+				(safeData as any).depth =
+					(typeof (parentTodo as any).depth === 'number' ? (parentTodo as any).depth : 0) + 1;
+			}
+		}
 
 		const updatedTodo = await strapi.entityService.update('api::todo.todo', existingTodo.id, {
 			data: safeData as any,
@@ -234,6 +408,22 @@ export default factories.createCoreController('api::todo.todo', () => ({
 
 		if (!existingTodo) {
 			return;
+		}
+
+		const children = await strapi.entityService.findMany('api::todo.todo', {
+			filters: {
+				parent: {
+					id: {
+						$eq: existingTodo.id,
+					},
+				},
+			} as any,
+			fields: ['id'],
+			limit: 1,
+		});
+
+		if (Array.isArray(children) && children.length > 0) {
+			return ctx.badRequest('Cannot delete a todo that still has children. Reassign or remove children first.');
 		}
 
 		const deletedTodo = await strapi.entityService.delete('api::todo.todo', existingTodo.id);

@@ -33,11 +33,11 @@ const getTodos = async (token) =>
     headers: authHeaders(token),
   });
 
-const createTodo = async (token, title) =>
+const createTodo = async (token, title, extraData = {}) =>
   jsonFetch('/api/todos', {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({ data: { title, isCompleted: false } }),
+    body: JSON.stringify({ data: { title, isCompleted: false, ...extraData } }),
   });
 
 const deleteTodo = async (token, id) =>
@@ -117,6 +117,50 @@ const run = async () => {
 
   const aIdsAfterCreate = getIds(aAfterCreate.payload);
   assert(!aIdsAfterCreate.includes(createdId), `Deleted todo id returned after create (${createdId})`);
+
+  console.log('6) User A creates parent + sub-todo and verifies linkage...');
+  const parentRes = await createTodo(TOKEN_A, `Hierarchy parent ${Date.now()}`);
+  assert(parentRes.response.ok, `Parent create failed (${parentRes.response.status})`);
+
+  const parentId = parentRes.payload?.data?.id;
+  assert(Number.isFinite(parentId), 'Parent create response missing id');
+
+  const parentDepth = parentRes.payload?.data?.depth;
+  assert(parentDepth === 0, `Parent depth expected 0 but got ${String(parentDepth)}`);
+
+  const childRes = await createTodo(TOKEN_A, `Hierarchy child ${Date.now()}`, { parent: parentId });
+  assert(childRes.response.ok, `Child create failed (${childRes.response.status})`);
+
+  const childId = childRes.payload?.data?.id;
+  assert(Number.isFinite(childId), 'Child create response missing id');
+  assert(childRes.payload?.data?.depth === 1, `Child depth expected 1 but got ${String(childRes.payload?.data?.depth)}`);
+
+  const parentWithChildren = await jsonFetch(`/api/todos/${parentId}?populate=children`, {
+    method: 'GET',
+    headers: authHeaders(TOKEN_A),
+  });
+
+  assert(parentWithChildren.response.ok, `Fetching parent with children failed (${parentWithChildren.response.status})`);
+
+  const children = parentWithChildren.payload?.data?.children ?? parentWithChildren.payload?.data?.attributes?.children?.data ?? [];
+  const childIds = Array.isArray(children)
+    ? children.map((item) => item?.id).filter(Number.isFinite)
+    : [];
+
+  assert(childIds.includes(childId), `Expected child ${childId} under parent ${parentId}`);
+
+  console.log('7) Parent deletion is blocked while children exist...');
+  const blockedDelete = await deleteTodo(TOKEN_A, parentId);
+  assert(
+    blockedDelete.response.status === 400 || blockedDelete.response.status === 409,
+    `Expected blocked parent delete, got ${blockedDelete.response.status}`
+  );
+
+  const childDelete = await deleteTodo(TOKEN_A, childId);
+  assert(childDelete.response.ok, `Child delete failed (${childDelete.response.status})`);
+
+  const parentDelete = await deleteTodo(TOKEN_A, parentId);
+  assert(parentDelete.response.ok, `Parent delete after child removal failed (${parentDelete.response.status})`);
 
   console.log('All ownership and deletion consistency checks passed.');
 };

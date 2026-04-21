@@ -441,13 +441,16 @@ export interface ApiTodoTodo extends Struct.CollectionTypeSchema {
     draftAndPublish: false;
   };
   attributes: {
+    children: Schema.Attribute.Relation<'oneToMany', 'api::todo.todo'>;
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    depth: Schema.Attribute.Integer & Schema.Attribute.DefaultTo<0>;
     isCompleted: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<'oneToMany', 'api::todo.todo'> &
       Schema.Attribute.Private;
+    parent: Schema.Attribute.Relation<'manyToOne', 'api::todo.todo'>;
     publishedAt: Schema.Attribute.DateTime;
     title: Schema.Attribute.String & Schema.Attribute.Required;
     updatedAt: Schema.Attribute.DateTime;
