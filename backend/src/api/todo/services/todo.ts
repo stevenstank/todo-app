@@ -22,6 +22,8 @@ type TreeTodo = {
 	completed?: boolean;
 	isCompleted?: boolean;
 	depth?: number;
+	completedChildren: number;
+	totalChildren: number;
 	assignedUser: {
 		id: number;
 		username: string;
@@ -168,17 +170,19 @@ export default factories.createCoreService('api::todo.todo', () => ({
 						? todo.isCompleted
 						: undefined;
 
-			todoMap.set(todo.id, {
-				id: todo.id,
-				title: typeof todo.title === 'string' ? todo.title : undefined,
-				completed: completion,
-				isCompleted: completion,
-				depth: typeof todo.depth === 'number' ? todo.depth : undefined,
-				assignedUser: toPublicAssignedUser(todo.assignedUser ?? null),
-				parentId,
-				children: [],
-			});
-		}
+				todoMap.set(todo.id, {
+					id: todo.id,
+					title: typeof todo.title === 'string' ? todo.title : undefined,
+					completed: completion,
+					isCompleted: completion,
+					depth: typeof todo.depth === 'number' ? todo.depth : undefined,
+					completedChildren: 0,
+					totalChildren: 0,
+					assignedUser: toPublicAssignedUser(todo.assignedUser ?? null),
+					parentId,
+					children: [],
+				});
+			}
 
 		const roots: TreeTodo[] = [];
 
@@ -195,8 +199,14 @@ export default factories.createCoreService('api::todo.todo', () => ({
 				continue;
 			}
 
-			parent.children.push(todo);
-		}
+				parent.children.push(todo);
+			}
+
+			for (const todo of todoMap.values()) {
+				const directChildren = todo.children ?? [];
+				todo.totalChildren = directChildren.length;
+				todo.completedChildren = directChildren.filter((child) => child.completed).length;
+			}
 
 		if (process.env.NODE_ENV !== 'production') {
 			strapi.log.info(

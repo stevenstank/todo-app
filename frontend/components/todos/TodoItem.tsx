@@ -49,8 +49,14 @@ export default function TodoItem({
   const hasChildren = (todo.children?.length ?? 0) > 0;
   const isExpanded = isTodoExpanded(todo.id);
   const isChild = level > 0;
-  const completedChildren = (todo.children ?? []).filter((child) => child.completed).length;
-  const totalChildren = todo.children?.length ?? 0;
+  const computedCompletedChildren = (todo.children ?? []).filter((child) => child.completed).length;
+  const computedTotalChildren = todo.children?.length ?? 0;
+  const completedChildren = computedCompletedChildren;
+  const totalChildren =
+    typeof todo.totalChildren === 'number'
+      ? Math.max(todo.totalChildren, computedTotalChildren)
+      : computedTotalChildren;
+  const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
   const assignedUser = todo.assignedUser ?? null;
   const isAssigned = Boolean(assignedUser);
   const assigneeInitial = assignedUser?.username?.trim()?.charAt(0)?.toUpperCase() ?? '?';
@@ -103,6 +109,15 @@ export default function TodoItem({
                 <p className="mt-0.5 text-xs text-slate-500">
                   {completedChildren}/{totalChildren} completed
                 </p>
+              ) : null}
+              {hasChildren ? (
+                <div className="mt-1 h-1.5 w-40 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                    aria-label={`${progressPercent}% complete`}
+                  />
+                </div>
               ) : null}
               {assignedUser ? (
                 <div className="mt-1 flex items-center gap-2 text-xs text-blue-700">

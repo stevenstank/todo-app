@@ -19,6 +19,8 @@ export type TodoItem = {
   title: string;
   completed: boolean;
   depth?: number;
+  completedChildren?: number;
+  totalChildren?: number;
   parentId?: TodoIdentifier | null;
   assignedUser?: TodoAssignedUser | null;
   children: TodoItem[];
@@ -42,6 +44,8 @@ export type TodoApiItem = {
   documentId?: string;
   title?: string;
   depth?: number;
+  completedChildren?: number;
+  totalChildren?: number;
   parentId?: number | string | null;
   assignedUser?: TodoApiUser | null;
   completed?: boolean;
@@ -50,6 +54,8 @@ export type TodoApiItem = {
   attributes?: {
     title?: string;
     depth?: number;
+    completedChildren?: number;
+    totalChildren?: number;
     parentId?: number | string | null;
     assignedUser?: TodoApiUser | null;
     completed?: boolean;
@@ -146,6 +152,18 @@ export const mapTodoApiItem = (todo: TodoApiItem): TodoItem => {
         ? todo.attributes.depth
         : typeof todo.depth === 'number'
           ? todo.depth
+          : undefined,
+    completedChildren:
+      typeof todo.attributes?.completedChildren === 'number'
+        ? todo.attributes.completedChildren
+        : typeof todo.completedChildren === 'number'
+          ? todo.completedChildren
+          : undefined,
+    totalChildren:
+      typeof todo.attributes?.totalChildren === 'number'
+        ? todo.attributes.totalChildren
+        : typeof todo.totalChildren === 'number'
+          ? todo.totalChildren
           : undefined,
     parentId:
       toIdentifier(todo.attributes?.parentId) ??
