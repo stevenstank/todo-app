@@ -59,6 +59,12 @@ const aiController = ({ strapi }: { strapi: Core.Strapi }) => ({
     console.log('---- AI REQUEST START ----');
 
     try {
+      const authUser = ctx.state?.user;
+
+      if (!authUser || typeof authUser.id !== 'number') {
+        return sendError(ctx, 401, 'Authentication required');
+      }
+
       console.log('Request body:', ctx.request.body);
       const { task } = ctx.request.body ?? {};
 

@@ -53,6 +53,12 @@ const updateTodo = async (token, id, title) =>
     body: JSON.stringify({ data: { title } }),
   });
 
+const getTodoById = async (token, id) =>
+  jsonFetch(`/api/todos/${id}`, {
+    method: 'GET',
+    headers: authHeaders(token),
+  });
+
 const getIds = (payload) => (Array.isArray(payload?.data) ? payload.data.map((item) => item?.id).filter(Number.isFinite) : []);
 
 const assert = (condition, message) => {
@@ -88,6 +94,11 @@ const run = async () => {
   console.log('3) User B tries to update/delete User A todo (must fail 403/404)...');
   const updateByB = await updateTodo(TOKEN_B, createdId, 'hacked by b');
   const deleteByB = await deleteTodo(TOKEN_B, createdId);
+  const readByB = await getTodoById(TOKEN_B, createdId);
+  const createdDocumentId = createRes.payload?.data?.documentId;
+  const readByDocumentId = createdDocumentId
+    ? await getTodoById(TOKEN_B, createdDocumentId)
+    : { response: { status: 404 } };
 
   assert(
     updateByB.response.status === 403 || updateByB.response.status === 404,
@@ -96,6 +107,14 @@ const run = async () => {
   assert(
     deleteByB.response.status === 403 || deleteByB.response.status === 404,
     `User B delete unexpectedly succeeded (${deleteByB.response.status})`
+  );
+  assert(
+    readByB.response.status === 403 || readByB.response.status === 404,
+    `User B read-by-id unexpectedly succeeded (${readByB.response.status})`
+  );
+  assert(
+    readByDocumentId.response.status === 403 || readByDocumentId.response.status === 404,
+    `User B read-by-documentId unexpectedly succeeded (${readByDocumentId.response.status})`
   );
 
   console.log('4) User A deletes created todo and verifies hard delete...');
@@ -149,7 +168,14 @@ const run = async () => {
 
   assert(childIds.includes(childId), `Expected child ${childId} under parent ${parentId}`);
 
-  console.log('7) Parent deletion is blocked while children exist...');
+  console.log('7) User B cannot create child under User A parent...');
+  const crossUserChildCreate = await createTodo(TOKEN_B, `Cross user child ${Date.now()}`, { parent: parentId });
+  assert(
+    crossUserChildCreate.response.status === 403 || crossUserChildCreate.response.status === 404,
+    `User B cross-parent create unexpectedly succeeded (${crossUserChildCreate.response.status})`
+  );
+
+  console.log('8) Parent deletion is blocked while children exist...');
   const blockedDelete = await deleteTodo(TOKEN_A, parentId);
   assert(
     blockedDelete.response.status === 400 || blockedDelete.response.status === 409,
