@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   createTodoRequest,
+  generateSubtasksWithAiRequest,
   fetchTodosRequest,
   deleteTodoRequest,
   toggleTodoRequest,
@@ -75,6 +76,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   const [isCreating, setIsCreating] = useState(false);
   const [updatingTodoId, setUpdatingTodoId] = useState<TodoIdentifier | null>(null);
   const [deletingTodoIds, setDeletingTodoIds] = useState<TodoIdentifier[]>([]);
+  const [generatingSubtasksTodoId, setGeneratingSubtasksTodoId] = useState<TodoIdentifier | null>(null);
   const [createError, setCreateError] = useState('');
   const [actionError, setActionError] = useState('');
 
@@ -228,6 +230,37 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     }
   };
 
+  const handleGenerateSubtasks = async (todo: TodoUiItem) => {
+    if (generatingSubtasksTodoId) {
+      return;
+    }
+
+    setGeneratingSubtasksTodoId(todo.id);
+    setActionError('');
+
+    try {
+      const subtasks = await generateSubtasksWithAiRequest(todo.title);
+
+      for (const subtaskTitle of subtasks) {
+        await createTodoRequest(subtaskTitle, todo.id);
+      }
+
+      const latest = await fetchTodosRequest('after-create');
+      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+      setTodos(mapLatestTodos(latestMapped));
+    } catch (error) {
+      if (error instanceof TodoUnauthorizedError) {
+        router.replace('/signin');
+        router.refresh();
+        return;
+      }
+
+      setActionError(error instanceof TodoActionError ? error.message : 'AI generation failed. Please try again.');
+    } finally {
+      setGeneratingSubtasksTodoId(null);
+    }
+  };
+
   const handleDelete = async (todoId: TodoIdentifier) => {
     if (deletingTodoIds.includes(todoId)) {
       return;
@@ -279,12 +312,14 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     isCreating,
     updatingTodoId,
     deletingTodoIds,
+    generatingSubtasksTodoId,
     createError,
     actionError,
     setNewTodo,
     clearCreateError: () => setCreateError(''),
     handleCreate,
     handleCreateSubtask,
+    handleGenerateSubtasks,
     handleToggle,
     handleDelete,
   };

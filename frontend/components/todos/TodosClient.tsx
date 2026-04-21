@@ -24,12 +24,14 @@ export default function TodosClient({
     isCreating,
     updatingTodoId,
     deletingTodoIds,
+    generatingSubtasksTodoId,
     createError,
     actionError,
     setNewTodo,
     clearCreateError,
     handleCreate,
     handleCreateSubtask,
+    handleGenerateSubtasks,
     handleToggle,
     handleDelete,
   } = useTodos(initialTodos);
@@ -100,9 +102,11 @@ export default function TodosClient({
             todos={todos}
             updatingTodoId={updatingTodoId}
             deletingTodoIds={deletingTodoIds}
+            generatingSubtasksTodoId={generatingSubtasksTodoId}
             onToggle={handleToggle}
             onDelete={handleDelete}
             onCreateSubtask={handleCreateSubtask}
+            onGenerateSubtasks={handleGenerateSubtasks}
           />
         </div>
       </section>

@@ -4,6 +4,13 @@ import type { TodoIdentifier, TodoPayload, TodosPayload } from '@/types/todo';
 export class TodoActionError extends Error {}
 export class TodoUnauthorizedError extends TodoActionError {}
 
+type GenerateSubtasksPayload = {
+  subtasks?: unknown;
+  error?: {
+    message?: string;
+  };
+};
+
 const parseJson = async <T>(response: Response): Promise<T> =>
   ((await response.json().catch(() => ({}))) as T);
 
@@ -118,6 +125,64 @@ export const createTodoRequest = async (title: string, parentId?: TodoIdentifier
     return payload;
   } catch (error) {
     throw toRequestError(error, 'Could not add todo');
+  }
+};
+
+export const generateSubtasksWithAiRequest = async (taskTitle: string): Promise<string[]> => {
+  try {
+    console.info('[todos][ai] Sending request', { taskLength: taskTitle.length });
+
+    const response = await fetch('/api/ai/generate-todos', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getBearerAuthHeader(),
+      },
+      cache: 'no-store',
+      body: JSON.stringify({
+        task: taskTitle,
+      }),
+    });
+
+    const rawText = await response.text();
+    let payload = {} as GenerateSubtasksPayload;
+
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText) as GenerateSubtasksPayload;
+      } catch {
+        payload = { error: { message: rawText } };
+      }
+    }
+
+    if (response.status === 401) {
+      throw new TodoUnauthorizedError('Authentication required');
+    }
+
+    if (!response.ok) {
+      console.error('[todos][ai] Frontend API Error:', {
+        status: response.status,
+        body: rawText,
+      });
+      throw new TodoActionError(getResponseErrorMessage(payload, 'Could not generate subtasks'));
+    }
+
+    const rawSubtasks = Array.isArray(payload.subtasks) ? payload.subtasks : [];
+
+    const subtasks = rawSubtasks
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+      .slice(0, 10);
+
+    if (subtasks.length === 0) {
+      throw new TodoActionError('AI did not return valid subtasks');
+    }
+
+    console.info('[todos][ai] Received subtasks', { count: subtasks.length });
+    return subtasks;
+  } catch (error) {
+    throw toRequestError(error, 'Could not generate subtasks');
   }
 };
 

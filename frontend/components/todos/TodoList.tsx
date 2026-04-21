@@ -5,18 +5,22 @@ type TodoListProps = {
   todos: TodoUiItem[];
   updatingTodoId: TodoIdentifier | null;
   deletingTodoIds: TodoIdentifier[];
+  generatingSubtasksTodoId: TodoIdentifier | null;
   onToggle: (todo: TodoUiItem) => void;
   onDelete: (todoId: TodoIdentifier) => void;
   onCreateSubtask: (parentId: TodoIdentifier, title: string) => Promise<void>;
+  onGenerateSubtasks: (todo: TodoUiItem) => Promise<void>;
 };
 
 export default function TodoList({
   todos,
   updatingTodoId,
   deletingTodoIds,
+  generatingSubtasksTodoId,
   onToggle,
   onDelete,
   onCreateSubtask,
+  onGenerateSubtasks,
 }: TodoListProps) {
   const [activeParentId, setActiveParentId] = useState<TodoIdentifier | null>(null);
   const [subtaskTitle, setSubtaskTitle] = useState('');
@@ -53,7 +57,8 @@ export default function TodoList({
     const isUpdating = updatingTodoId === todo.id;
     const isDeleting = deletingTodoIds.includes(todo.id);
     const isCreatingSubtask = submittingParentId === todo.id;
-    const isBusy = isUpdating || isDeleting || isCreatingSubtask;
+    const isGenerating = generatingSubtasksTodoId === todo.id;
+    const isBusy = isUpdating || isDeleting || isCreatingSubtask || isGenerating;
     const hasChildren = (todo.children?.length ?? 0) > 0;
     const isChild = level > 0;
     const completedChildren = (todo.children ?? []).filter((child) => child.completed).length;
@@ -112,6 +117,14 @@ export default function TodoList({
                 className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Add Subtask
+              </button>
+              <button
+                type="button"
+                onClick={() => onGenerateSubtasks(todo)}
+                disabled={isBusy}
+                className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isGenerating ? 'Generating...' : 'Generate Subtasks with AI'}
               </button>
             </div>
           </div>

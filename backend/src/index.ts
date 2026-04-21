@@ -6,6 +6,7 @@ const AUTHENTICATED_TODO_ACTIONS = [
   'api::todo.todo.create',
   'api::todo.todo.update',
   'api::todo.todo.delete',
+  'api::ai.ai.generateTodos',
 ] as const;
 
 const parseBackfillUserId = (): number | null => {
