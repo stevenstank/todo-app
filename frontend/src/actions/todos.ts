@@ -24,6 +24,10 @@ type FetchTodosOptions = {
   completed?: boolean;
 };
 
+type FetchTodosRequestOptions = {
+  signal?: AbortSignal;
+};
+
 const readCurrentUserId = (): number | null => {
   if (typeof window === 'undefined') {
     return null;
@@ -333,7 +337,8 @@ export const fetchAssignableUsersRequest = async (): Promise<AssignableUsersPayl
 
 export const fetchTodosRequest = async (
   source: 'default' | 'after-create' | 'after-delete' | 'after-toggle' | 'after-assign' | 'search' = 'default',
-  options: FetchTodosOptions = {}
+  options: FetchTodosOptions = {},
+  requestOptions: FetchTodosRequestOptions = {}
 ): Promise<TodosPayload> => {
   try {
     const path = buildTodosPath(options);
@@ -344,6 +349,7 @@ export const fetchTodosRequest = async (
         ...getBearerAuthHeader(),
       },
       cache: 'no-store',
+      signal: requestOptions.signal,
     });
 
     const payload = await parseJson<TodosPayload>(response);
@@ -368,6 +374,10 @@ export const fetchTodosRequest = async (
 
     return payload;
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
+
     throw toRequestError(error, 'Could not load todos');
   }
 };

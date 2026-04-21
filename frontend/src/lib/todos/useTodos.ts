@@ -15,6 +15,7 @@ import {
 } from '@/actions/todos';
 import type { AssignableUser, TodoIdentifier, TodoItem, TodoUiItem } from '@/types/todo';
 import { mapTodoApiItem } from '@/types/todo';
+import { debounce, type DebouncedFunction } from '@/lib/utils/debounce';
 
 const mapIncomingTodos = (items: TodoItem[]): TodoUiItem[] =>
   items.map((item) => ({
@@ -72,6 +73,8 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   const nextTempIdRef = useRef(1);
   const createRequestSeqRef = useRef(0);
   const deleteRequestSeqRef = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const debouncedSearchRef = useRef<DebouncedFunction<[string]> | null>(null);
 
   const [newTodo, setNewTodo] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -128,31 +131,52 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     });
     const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
     setTodos(mapLatestTodos(latestMapped));
+    return latestMapped;
   };
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const latest = await fetchTodosRequest('search', { searchTerm });
-          const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-          setTodos(mapLatestTodos(latestMapped));
-        } catch (error) {
-          if (error instanceof TodoUnauthorizedError) {
-            router.replace('/signin');
-            router.refresh();
-            return;
-          }
+    const runSearch = async (term: string) => {
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
 
-          setActionError(error instanceof TodoActionError ? error.message : 'Could not load todos');
+      try {
+        const latest = await fetchTodosRequest(
+          'search',
+          { searchTerm: term },
+          { signal: controller.signal }
+        );
+        const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+        setTodos(mapLatestTodos(latestMapped));
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return;
         }
-      })();
+
+        if (error instanceof TodoUnauthorizedError) {
+          router.replace('/signin');
+          router.refresh();
+          return;
+        }
+
+        setActionError(error instanceof TodoActionError ? error.message : 'Could not load todos');
+      }
+    };
+
+    debouncedSearchRef.current = debounce((term: string) => {
+      void runSearch(term);
     }, 300);
 
     return () => {
-      window.clearTimeout(timeout);
+      debouncedSearchRef.current?.cancel();
+      searchAbortRef.current?.abort();
     };
-  }, [searchTerm, router]);
+  }, [router]);
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    debouncedSearchRef.current?.(value);
+  };
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -200,7 +224,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       }
 
       await createTodoRequest(title);
-      await refreshTodos('after-create');
+      const latestMapped = await refreshTodos('after-create');
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][create][end]', {
@@ -394,7 +418,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     createError,
     actionError,
     setNewTodo,
-    setSearchTerm,
+    setSearchTerm: handleSearchChange,
     clearCreateError: () => setCreateError(''),
     handleCreate,
     handleCreateSubtask,
