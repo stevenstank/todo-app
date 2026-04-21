@@ -30,6 +30,32 @@ const withoutRestrictedFields = (data: unknown): Record<string, unknown> => {
 	return safeData;
 };
 
+const getTodoCompleted = (todo: any): boolean =>
+	Boolean(
+		todo?.completed ??
+			todo?.isCompleted ??
+			todo?.attributes?.completed ??
+			todo?.attributes?.isCompleted
+	);
+
+const syncCompletionFields = (data: Record<string, unknown>): Record<string, unknown> => {
+	if (hasOwn(data, 'completed') && typeof data.completed === 'boolean') {
+		return {
+			...data,
+			isCompleted: data.completed,
+		};
+	}
+
+	if (hasOwn(data, 'isCompleted') && typeof data.isCompleted === 'boolean') {
+		return {
+			...data,
+			completed: data.isCompleted,
+		};
+	}
+
+	return data;
+};
+
 const hasOwn = (obj: Record<string, unknown>, key: string): boolean =>
 	Object.prototype.hasOwnProperty.call(obj, key);
 
@@ -179,6 +205,59 @@ const validateNoCircularParent = async (todoId: number, candidateParentId: numbe
 	return true;
 };
 
+const recomputeParentCompletion = async (parentId: number, userId: number, visited = new Set<number>()) => {
+	if (visited.has(parentId)) {
+		return;
+	}
+
+	visited.add(parentId);
+
+	const parent = await strapi.entityService.findOne('api::todo.todo', parentId, {
+		populate: {
+			parent: true,
+			user: true,
+		},
+	});
+
+	if (!parent || !checkOwnership(parent, userId)) {
+		return;
+	}
+
+	const siblings = await strapi.entityService.findMany('api::todo.todo', {
+		filters: {
+			parent: {
+				id: {
+					$eq: parentId,
+				},
+			},
+			user: {
+				id: {
+					$eq: userId,
+				},
+			},
+		} as any,
+		fields: ['id', 'completed', 'isCompleted'],
+	});
+
+	const childTodos = Array.isArray(siblings) ? siblings : [];
+	const nextCompleted = childTodos.length > 0 && childTodos.every((child) => getTodoCompleted(child));
+
+	if (getTodoCompleted(parent) !== nextCompleted) {
+		await strapi.entityService.update('api::todo.todo', parentId, {
+			data: {
+				completed: nextCompleted,
+				isCompleted: nextCompleted,
+			} as any,
+		});
+	}
+
+	const ancestorId = getRelationId((parent as any).parent);
+
+	if (ancestorId !== null) {
+		await recomputeParentCompletion(ancestorId, userId, visited);
+	}
+};
+
 const isDebug = process.env.NODE_ENV !== 'production';
 
 const stripUserRelation = <T extends Record<string, unknown>>(todo: T): T => {
@@ -222,7 +301,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const incomingData = ctx.request.body?.data;
-		const safeData = withoutRestrictedFields(incomingData);
+		const safeData = syncCompletionFields(withoutRestrictedFields(incomingData));
 		const parentInput = extractParentInput(safeData);
 
 		if ('invalid' in parentInput && parentInput.invalid) {
@@ -250,6 +329,8 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		const todo = await strapi.entityService.create('api::todo.todo', {
 			data: {
 				...(safeData as any),
+				completed: hasOwn(safeData, 'completed') ? (safeData.completed as any) : false,
+				isCompleted: hasOwn(safeData, 'isCompleted') ? (safeData.isCompleted as any) : false,
 				parent: resolvedParentId,
 				depth: computedDepth,
 				user: authUser.id,
@@ -323,8 +404,14 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const incomingData = ctx.request.body?.data;
-		const safeData = withoutRestrictedFields(incomingData);
+		const safeData = syncCompletionFields(withoutRestrictedFields(incomingData));
 		const parentInput = extractParentInput(safeData);
+		const existingWithParent = await strapi.entityService.findOne('api::todo.todo', existingTodo.id, {
+			populate: {
+				parent: true,
+			},
+		});
+		const previousParentId = getRelationId((existingWithParent as any)?.parent ?? null);
 
 		if ('invalid' in parentInput && parentInput.invalid) {
 			return ctx.badRequest('Invalid parent relation payload');
@@ -364,6 +451,27 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		const updatedTodo = await strapi.entityService.update('api::todo.todo', existingTodo.id, {
 			data: safeData as any,
 		});
+
+		const updatedWithParent = await strapi.entityService.findOne('api::todo.todo', existingTodo.id, {
+			populate: {
+				parent: true,
+			},
+		});
+
+		const nextParentId = getRelationId((updatedWithParent as any)?.parent ?? null);
+		const parentsToRecompute = new Set<number>();
+
+		if (previousParentId !== null) {
+			parentsToRecompute.add(previousParentId);
+		}
+
+		if (nextParentId !== null) {
+			parentsToRecompute.add(nextParentId);
+		}
+
+		for (const parentId of parentsToRecompute) {
+			await recomputeParentCompletion(parentId, authUser.id);
+		}
 
 		return this.transformResponse(stripUserRelation(updatedTodo as Record<string, unknown>));
 	},

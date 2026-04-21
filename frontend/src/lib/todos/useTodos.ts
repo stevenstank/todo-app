@@ -211,6 +211,10 @@ export const useTodos = (initialTodos: TodoItem[]) => {
           completed: nextCompleted,
         }))
       );
+
+      const latest = await fetchTodosRequest('after-toggle');
+      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+      setTodos(mapLatestTodos(latestMapped));
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');

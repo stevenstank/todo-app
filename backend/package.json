@@ -13,6 +13,7 @@
     "strapi": "strapi",
     "verify:ownership": "node scripts/verify-todo-ownership.mjs",
     "verify:tree": "node scripts/verify-todo-tree-performance.mjs",
+    "verify:completion": "node scripts/verify-todo-completion-propagation.mjs",
     "upgrade": "npx @strapi/upgrade latest",
     "upgrade:dry": "npx @strapi/upgrade latest --dry"
   },

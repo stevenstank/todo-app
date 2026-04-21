@@ -19,6 +19,10 @@
       "type": "boolean",
       "default": false
     },
+    "completed": {
+      "type": "boolean",
+      "default": false
+    },
     "depth": {
       "type": "integer",
       "default": 0

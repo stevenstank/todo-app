@@ -7,6 +7,7 @@ import { factories } from '@strapi/strapi';
 type RawTodo = {
 	id: number;
 	title?: string;
+	completed?: boolean;
 	isCompleted?: boolean;
 	depth?: number;
 	parent?: unknown;
@@ -19,6 +20,7 @@ type RawTodo = {
 type TreeTodo = {
 	id: number;
 	title?: string;
+	completed?: boolean;
 	isCompleted?: boolean;
 	depth?: number;
 	assignedUser?: unknown;
@@ -122,11 +124,18 @@ export default factories.createCoreService('api::todo.todo', () => ({
 		for (const todo of todos) {
 			const parentId = getRelationId(todo.parent ?? null);
 			const assignee = todo.assignedUser ?? todo.user ?? null;
+			const completion =
+				typeof todo.completed === 'boolean'
+					? todo.completed
+					: typeof todo.isCompleted === 'boolean'
+						? todo.isCompleted
+						: undefined;
 
 			todoMap.set(todo.id, {
 				id: todo.id,
 				title: typeof todo.title === 'string' ? todo.title : undefined,
-				isCompleted: typeof todo.isCompleted === 'boolean' ? todo.isCompleted : undefined,
+				completed: completion,
+				isCompleted: completion,
 				depth: typeof todo.depth === 'number' ? todo.depth : undefined,
 				assignedUser: assignee,
 				parentId,

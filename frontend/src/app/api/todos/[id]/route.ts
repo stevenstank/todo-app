@@ -32,6 +32,14 @@ type Context = {
 };
 
 export async function PUT(request: NextRequest, context: Context) {
+	return updateTodo(request, context);
+}
+
+export async function PATCH(request: NextRequest, context: Context) {
+	return updateTodo(request, context);
+}
+
+const updateTodo = async (request: NextRequest, context: Context) => {
   const token = getAuthToken() ?? readBearerToken(request);
   const authUserId = token ? getUserIdFromToken(token) ?? getAuthUserId() : null;
 
@@ -62,7 +70,7 @@ export async function PUT(request: NextRequest, context: Context) {
   }
 
   return NextResponse.json(payload, { status: response.status });
-}
+};
 
 export async function DELETE(_request: NextRequest, context: Context) {
   const token = getAuthToken() ?? readBearerToken(_request);

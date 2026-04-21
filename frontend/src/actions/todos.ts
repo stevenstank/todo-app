@@ -124,7 +124,7 @@ export const createTodoRequest = async (title: string, parentId?: TodoIdentifier
 export const toggleTodoRequest = async (todoId: TodoIdentifier, nextCompleted: boolean): Promise<void> => {
   try {
     const response = await fetch(`/api/todos/${todoId}`, {
-      method: 'PUT',
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         ...getBearerAuthHeader(),
@@ -132,6 +132,7 @@ export const toggleTodoRequest = async (todoId: TodoIdentifier, nextCompleted: b
       cache: 'no-store',
       body: JSON.stringify({
         data: {
+          completed: nextCompleted,
           isCompleted: nextCompleted,
         },
       }),
@@ -183,7 +184,9 @@ export const deleteTodoRequest = async (todoId: TodoIdentifier): Promise<void> =
   }
 };
 
-export const fetchTodosRequest = async (source: 'default' | 'after-create' | 'after-delete' = 'default'): Promise<TodosPayload> => {
+export const fetchTodosRequest = async (
+  source: 'default' | 'after-create' | 'after-delete' | 'after-toggle' = 'default'
+): Promise<TodosPayload> => {
   try {
     const path = buildTodosPath();
 

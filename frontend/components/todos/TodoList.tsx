@@ -56,6 +56,8 @@ export default function TodoList({
     const isBusy = isUpdating || isDeleting || isCreatingSubtask;
     const hasChildren = (todo.children?.length ?? 0) > 0;
     const isChild = level > 0;
+    const completedChildren = (todo.children ?? []).filter((child) => child.completed).length;
+    const totalChildren = todo.children?.length ?? 0;
 
     return (
       <div key={todo.id} className="space-y-2" style={{ paddingLeft: `${level * 18}px` }}>
@@ -65,7 +67,16 @@ export default function TodoList({
           }`}
         >
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={todo.completed}
+                onChange={() => onToggle(todo)}
+                disabled={isBusy}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400 disabled:cursor-not-allowed"
+                aria-label={`Mark ${todo.title} as ${todo.completed ? 'pending' : 'completed'}`}
+              />
+              <div>
               <p className={`font-medium ${todo.completed ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
                 {todo.title}
                 {todo.isOptimistic ? <span className="ml-2 text-xs text-slate-400">Saving...</span> : null}
@@ -74,17 +85,15 @@ export default function TodoList({
                 {todo.completed ? 'Completed' : 'Pending'}
                 {isChild ? ' • Subtask' : ' • Parent task'}
               </p>
+              {hasChildren ? (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {completedChildren}/{totalChildren} completed
+                </p>
+              ) : null}
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => onToggle(todo)}
-                disabled={isBusy}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isUpdating ? 'Processing...' : todo.completed ? 'Mark Pending' : 'Mark Done'}
-              </button>
               <button
                 type="button"
                 onClick={() => onDelete(todo.id)}
