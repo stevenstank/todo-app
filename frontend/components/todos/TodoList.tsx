@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
 
 type TodoListProps = {
@@ -6,6 +7,7 @@ type TodoListProps = {
   deletingTodoIds: TodoIdentifier[];
   onToggle: (todo: TodoUiItem) => void;
   onDelete: (todoId: TodoIdentifier) => void;
+  onCreateSubtask: (parentId: TodoIdentifier, title: string) => Promise<void>;
 };
 
 export default function TodoList({
@@ -14,7 +16,12 @@ export default function TodoList({
   deletingTodoIds,
   onToggle,
   onDelete,
+  onCreateSubtask,
 }: TodoListProps) {
+  const [activeParentId, setActiveParentId] = useState<TodoIdentifier | null>(null);
+  const [subtaskTitle, setSubtaskTitle] = useState('');
+  const [submittingParentId, setSubmittingParentId] = useState<TodoIdentifier | null>(null);
+
   if (todos.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
@@ -24,18 +31,40 @@ export default function TodoList({
     );
   }
 
-  return (
-    <div className="space-y-2">
-      {todos.map((todo) => {
-        const isUpdating = updatingTodoId === todo.id;
-        const isDeleting = deletingTodoIds.includes(todo.id);
-        const isBusy = isUpdating || isDeleting;
+  const handleSubtaskSubmit = async (parentId: TodoIdentifier) => {
+    const title = subtaskTitle.trim();
 
-        return (
-          <article
-            key={todo.id}
-            className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-3"
-          >
+    if (!title || submittingParentId) {
+      return;
+    }
+
+    setSubmittingParentId(parentId);
+
+    try {
+      await onCreateSubtask(parentId, title);
+      setSubtaskTitle('');
+      setActiveParentId(null);
+    } finally {
+      setSubmittingParentId(null);
+    }
+  };
+
+  const renderTodo = (todo: TodoUiItem, level = 0): JSX.Element => {
+    const isUpdating = updatingTodoId === todo.id;
+    const isDeleting = deletingTodoIds.includes(todo.id);
+    const isCreatingSubtask = submittingParentId === todo.id;
+    const isBusy = isUpdating || isDeleting || isCreatingSubtask;
+    const hasChildren = (todo.children?.length ?? 0) > 0;
+    const isChild = level > 0;
+
+    return (
+      <div key={todo.id} className="space-y-2" style={{ paddingLeft: `${level * 18}px` }}>
+        <article
+          className={`rounded-lg border px-3 py-3 ${
+            isChild ? 'border-slate-200 bg-white' : 'border-slate-300 bg-slate-50'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
             <div>
               <p className={`font-medium ${todo.completed ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
                 {todo.title}
@@ -43,10 +72,11 @@ export default function TodoList({
               </p>
               <p className={`text-xs ${todo.completed ? 'text-green-600' : 'text-amber-600'}`}>
                 {todo.completed ? 'Completed' : 'Pending'}
+                {isChild ? ' • Subtask' : ' • Parent task'}
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => onToggle(todo)}
@@ -63,10 +93,50 @@ export default function TodoList({
               >
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveParentId((prev) => (prev === todo.id ? null : todo.id));
+                  setSubtaskTitle('');
+                }}
+                disabled={isBusy}
+                className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Add Subtask
+              </button>
             </div>
-          </article>
-        );
-      })}
+          </div>
+
+          {activeParentId === todo.id ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                value={subtaskTitle}
+                onChange={(event) => setSubtaskTitle(event.target.value)}
+                placeholder="Subtask title"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
+                disabled={isCreatingSubtask}
+              />
+              <button
+                type="button"
+                onClick={() => handleSubtaskSubmit(todo.id)}
+                disabled={isCreatingSubtask || subtaskTitle.trim().length === 0}
+                className="rounded-md bg-slate-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isCreatingSubtask ? 'Adding...' : 'Save Subtask'}
+              </button>
+            </div>
+          ) : null}
+        </article>
+
+        {hasChildren ? <div className="space-y-2">{todo.children.map((child) => renderTodo(child, level + 1))}</div> : null}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      {todos.map((todo) => renderTodo(todo))}
     </div>
   );
 }

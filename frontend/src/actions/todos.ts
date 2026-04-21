@@ -83,7 +83,7 @@ const toRequestError = (
   return new TodoActionError(fallbackMessage);
 };
 
-export const createTodoRequest = async (title: string): Promise<TodoPayload> => {
+export const createTodoRequest = async (title: string, parentId?: TodoIdentifier): Promise<TodoPayload> => {
   try {
     const response = await fetch('/api/todos', {
       method: 'POST',
@@ -96,6 +96,7 @@ export const createTodoRequest = async (title: string): Promise<TodoPayload> => 
         data: {
           title,
           isCompleted: false,
+          ...(parentId ? { parent: parentId } : {}),
         },
       }),
     });

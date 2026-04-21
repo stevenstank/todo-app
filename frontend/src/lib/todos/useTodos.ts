@@ -13,6 +13,57 @@ import {
 import type { TodoIdentifier, TodoItem, TodoUiItem } from '@/types/todo';
 import { mapTodoApiItem } from '@/types/todo';
 
+const mapIncomingTodos = (items: TodoItem[]): TodoUiItem[] =>
+  items.map((item) => ({
+    ...item,
+    children: mapIncomingTodos(item.children ?? []),
+  }));
+
+const mapLatestTodos = (items: TodoItem[]): TodoUiItem[] => mapIncomingTodos(items);
+
+const updateTodoInTree = (
+  items: TodoUiItem[],
+  targetId: TodoIdentifier,
+  mutate: (todo: TodoUiItem) => TodoUiItem
+): TodoUiItem[] =>
+  items.map((item) => {
+    if (item.id === targetId) {
+      return mutate(item);
+    }
+
+    return {
+      ...item,
+      children: updateTodoInTree(item.children ?? [], targetId, mutate),
+    };
+  });
+
+const removeTodoFromTree = (items: TodoUiItem[], targetId: TodoIdentifier): TodoUiItem[] =>
+  items
+    .filter((item) => item.id !== targetId)
+    .map((item) => ({
+      ...item,
+      children: removeTodoFromTree(item.children ?? [], targetId),
+    }));
+
+const insertSubtaskOptimistically = (
+  items: TodoUiItem[],
+  parentId: TodoIdentifier,
+  todo: TodoUiItem
+): TodoUiItem[] =>
+  items.map((item) => {
+    if (item.id === parentId) {
+      return {
+        ...item,
+        children: [todo, ...(item.children ?? [])],
+      };
+    }
+
+    return {
+      ...item,
+      children: insertSubtaskOptimistically(item.children ?? [], parentId, todo),
+    };
+  });
+
 export const useTodos = (initialTodos: TodoItem[]) => {
   const router = useRouter();
   const nextTempIdRef = useRef(1);
@@ -20,7 +71,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   const deleteRequestSeqRef = useRef(0);
 
   const [newTodo, setNewTodo] = useState('');
-  const [todos, setTodos] = useState<TodoUiItem[]>(initialTodos);
+  const [todos, setTodos] = useState<TodoUiItem[]>(mapIncomingTodos(initialTodos));
   const [isCreating, setIsCreating] = useState(false);
   const [updatingTodoId, setUpdatingTodoId] = useState<TodoIdentifier | null>(null);
   const [deletingTodoIds, setDeletingTodoIds] = useState<TodoIdentifier[]>([]);
@@ -28,7 +79,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   const [actionError, setActionError] = useState('');
 
   useEffect(() => {
-    setTodos(initialTodos);
+    setTodos(mapIncomingTodos(initialTodos));
   }, [initialTodos]);
 
   const getNextTempId = () => {
@@ -59,6 +110,8 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       id: tempId,
       title,
       completed: false,
+      parentId: null,
+      children: [],
       isOptimistic: true,
     };
 
@@ -82,7 +135,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       await createTodoRequest(title);
       const latest = await fetchTodosRequest('after-create');
       const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(latestMapped);
+      setTodos(mapLatestTodos(latestMapped));
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][create][end]', {
@@ -105,6 +158,44 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     }
   };
 
+  const handleCreateSubtask = async (parentId: TodoIdentifier, rawTitle: string) => {
+    const title = rawTitle.trim();
+
+    if (!title) {
+      setActionError('Subtask title cannot be empty.');
+      return;
+    }
+
+    const tempId = getNextTempId();
+    const optimisticTodo: TodoUiItem = {
+      id: tempId,
+      title,
+      completed: false,
+      parentId,
+      children: [],
+      isOptimistic: true,
+    };
+
+    setActionError('');
+    setTodos((prev) => insertSubtaskOptimistically(prev, parentId, optimisticTodo));
+
+    try {
+      await createTodoRequest(title, parentId);
+      const latest = await fetchTodosRequest('after-create');
+      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+      setTodos(mapLatestTodos(latestMapped));
+    } catch (error) {
+      if (error instanceof TodoUnauthorizedError) {
+        router.replace('/signin');
+        router.refresh();
+        return;
+      }
+
+      setTodos((prev) => removeTodoFromTree(prev, tempId));
+      setActionError(error instanceof TodoActionError ? error.message : 'Could not add subtask');
+    }
+  };
+
   const handleToggle = async (todo: TodoUiItem) => {
     setUpdatingTodoId(todo.id);
     setActionError('');
@@ -115,7 +206,10 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       await toggleTodoRequest(todo.id, nextCompleted);
 
       setTodos((prev) =>
-        prev.map((item) => (item.id === todo.id ? { ...item, completed: nextCompleted } : item))
+        updateTodoInTree(prev, todo.id, (item) => ({
+          ...item,
+          completed: nextCompleted,
+        }))
       );
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
@@ -153,7 +247,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       await deleteTodoRequest(todoId);
       const latest = await fetchTodosRequest('after-delete');
       const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(latestMapped);
+      setTodos(mapLatestTodos(latestMapped));
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][delete][end]', {
@@ -186,6 +280,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     setNewTodo,
     clearCreateError: () => setCreateError(''),
     handleCreate,
+    handleCreateSubtask,
     handleToggle,
     handleDelete,
   };
