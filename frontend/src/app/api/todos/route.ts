@@ -34,7 +34,15 @@ export async function GET(request: NextRequest) {
   }
 
   const incomingQuery = request.nextUrl.searchParams.toString();
-  const path = buildTodosByUserPath(authUserId);
+  const rawSearchTerm = request.nextUrl.searchParams.get('filters[title][$containsi]');
+  const searchTerm = typeof rawSearchTerm === 'string' ? rawSearchTerm.trim() : '';
+  const rawCompleted = request.nextUrl.searchParams.get('filters[completed][$eq]');
+  const completedFilter =
+    rawCompleted === 'true' ? true : rawCompleted === 'false' ? false : undefined;
+  const path = buildTodosByUserPath(authUserId, {
+    searchTerm,
+    completed: completedFilter,
+  });
   const response = await fetch(getStrapiUrl(path), {
     headers: {
       Authorization: `Bearer ${token}`,

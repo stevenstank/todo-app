@@ -15,6 +15,7 @@
     "verify:tree": "node scripts/verify-todo-tree-performance.mjs",
     "verify:completion": "node scripts/verify-todo-completion-propagation.mjs",
     "verify:assignment": "node scripts/verify-todo-assignment-security.mjs",
+    "verify:search": "node scripts/verify-todo-search-filtering.mjs",
     "upgrade": "npx @strapi/upgrade latest",
     "upgrade:dry": "npx @strapi/upgrade latest --dry"
   },

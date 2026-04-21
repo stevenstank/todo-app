@@ -22,6 +22,7 @@ export default function TodosClient({
     todos,
     assignableUsers,
     newTodo,
+    searchTerm,
     isCreating,
     updatingTodoId,
     deletingTodoIds,
@@ -29,6 +30,7 @@ export default function TodosClient({
     createError,
     actionError,
     setNewTodo,
+    setSearchTerm,
     clearCreateError,
     handleCreate,
     handleCreateSubtask,
@@ -84,6 +86,20 @@ export default function TodosClient({
           ) : null}
 
           <h2 className="text-2xl font-semibold text-slate-900">Your Todos</h2>
+
+          <div>
+            <label htmlFor="todo-search" className="mb-1 block text-sm font-medium text-slate-700">
+              Search todos
+            </label>
+            <input
+              id="todo-search"
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Type to search by title..."
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
+            />
+          </div>
 
           <TodoForm
             value={newTodo}

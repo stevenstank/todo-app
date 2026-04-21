@@ -74,6 +74,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   const deleteRequestSeqRef = useRef(0);
 
   const [newTodo, setNewTodo] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [todos, setTodos] = useState<TodoUiItem[]>(mapIncomingTodos(initialTodos));
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -118,6 +119,40 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     nextTempIdRef.current += 1;
     return `temp-${next}`;
   };
+
+  const refreshTodos = async (
+    source: 'after-create' | 'after-delete' | 'after-toggle' | 'after-assign' | 'search'
+  ) => {
+    const latest = await fetchTodosRequest(source, {
+      searchTerm,
+    });
+    const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+    setTodos(mapLatestTodos(latestMapped));
+  };
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const latest = await fetchTodosRequest('search', { searchTerm });
+          const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+          setTodos(mapLatestTodos(latestMapped));
+        } catch (error) {
+          if (error instanceof TodoUnauthorizedError) {
+            router.replace('/signin');
+            router.refresh();
+            return;
+          }
+
+          setActionError(error instanceof TodoActionError ? error.message : 'Could not load todos');
+        }
+      })();
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [searchTerm, router]);
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -165,9 +200,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       }
 
       await createTodoRequest(title);
-      const latest = await fetchTodosRequest('after-create');
-      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(mapLatestTodos(latestMapped));
+      await refreshTodos('after-create');
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][create][end]', {
@@ -214,9 +247,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
 
     try {
       await createTodoRequest(title, parentId);
-      const latest = await fetchTodosRequest('after-create');
-      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(mapLatestTodos(latestMapped));
+      await refreshTodos('after-create');
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -245,9 +276,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
         }))
       );
 
-      const latest = await fetchTodosRequest('after-toggle');
-      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(mapLatestTodos(latestMapped));
+      await refreshTodos('after-toggle');
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -267,9 +296,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
 
     try {
       await assignTodoRequest(todoId, assignedUserId);
-      const latest = await fetchTodosRequest('after-assign');
-      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(mapLatestTodos(latestMapped));
+      await refreshTodos('after-assign');
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -298,9 +325,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
         await createTodoRequest(subtaskTitle, todo.id);
       }
 
-      const latest = await fetchTodosRequest('after-create');
-      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(mapLatestTodos(latestMapped));
+      await refreshTodos('after-create');
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -335,9 +360,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       }
 
       await deleteTodoRequest(todoId);
-      const latest = await fetchTodosRequest('after-delete');
-      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-      setTodos(mapLatestTodos(latestMapped));
+      await refreshTodos('after-delete');
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][delete][end]', {
@@ -363,6 +386,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     todos,
     assignableUsers,
     newTodo,
+    searchTerm,
     isCreating,
     updatingTodoId,
     deletingTodoIds,
@@ -370,6 +394,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     createError,
     actionError,
     setNewTodo,
+    setSearchTerm,
     clearCreateError: () => setCreateError(''),
     handleCreate,
     handleCreateSubtask,

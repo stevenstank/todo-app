@@ -19,6 +19,11 @@ type GenerateSubtasksPayload = {
 const parseJson = async <T>(response: Response): Promise<T> =>
   ((await response.json().catch(() => ({}))) as T);
 
+type FetchTodosOptions = {
+  searchTerm?: string;
+  completed?: boolean;
+};
+
 const readCurrentUserId = (): number | null => {
   if (typeof window === 'undefined') {
     return null;
@@ -48,12 +53,21 @@ const readCurrentUserId = (): number | null => {
   return null;
 };
 
-const buildTodosPath = (): string => {
+const buildTodosPath = (options: FetchTodosOptions = {}): string => {
   const userId = readCurrentUserId();
   const params = new URLSearchParams();
 
   if (typeof userId === 'number') {
     params.set('filters[user][id][$eq]', String(userId));
+  }
+
+  const searchTerm = typeof options.searchTerm === 'string' ? options.searchTerm.trim() : '';
+  if (searchTerm.length > 0) {
+    params.set('filters[title][$containsi]', searchTerm);
+  }
+
+  if (typeof options.completed === 'boolean') {
+    params.set('filters[completed][$eq]', String(options.completed));
   }
 
   params.set('populate', '*');
@@ -318,10 +332,11 @@ export const fetchAssignableUsersRequest = async (): Promise<AssignableUsersPayl
 };
 
 export const fetchTodosRequest = async (
-  source: 'default' | 'after-create' | 'after-delete' | 'after-toggle' | 'after-assign' = 'default'
+  source: 'default' | 'after-create' | 'after-delete' | 'after-toggle' | 'after-assign' | 'search' = 'default',
+  options: FetchTodosOptions = {}
 ): Promise<TodosPayload> => {
   try {
-    const path = buildTodosPath();
+    const path = buildTodosPath(options);
 
     const response = await fetch(path, {
       method: 'GET',

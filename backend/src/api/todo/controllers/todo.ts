@@ -462,6 +462,32 @@ const toAssignableUser = (user: any) => ({
 	avatarUrl: null,
 });
 
+const parseCompletedFilter = (
+	value: unknown
+): { provided: false } | { provided: true; value: boolean } | { provided: true; invalid: true } => {
+	if (value === undefined || value === null || value === '') {
+		return { provided: false };
+	}
+
+	if (typeof value === 'boolean') {
+		return { provided: true, value };
+	}
+
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+
+		if (normalized === 'true') {
+			return { provided: true, value: true };
+		}
+
+		if (normalized === 'false') {
+			return { provided: true, value: false };
+		}
+	}
+
+	return { provided: true, invalid: true };
+};
+
 export default factories.createCoreController('api::todo.todo', () => ({
 	async listAssignableUsers(ctx) {
 		const authUser = getAuthUser(ctx);
@@ -577,16 +603,36 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const treeService = strapi.service('api::todo.todo') as {
-			findUserTodoTree: (userId: number, options?: { maxLevels?: number }) => Promise<any[]>;
+			findUserTodoTree: (
+				userId: number,
+				options?: { maxLevels?: number; titleContains?: string; completed?: boolean }
+			) => Promise<any[]>;
 		};
 
 		const maxLevels = 2;
-		const treeTodos = await treeService.findUserTodoTree(authUser.id, { maxLevels });
+		const rawTitleFilter = (ctx.query as any)?.filters?.title?.$containsi;
+		const titleContains = typeof rawTitleFilter === 'string' ? rawTitleFilter.trim() : '';
+		const completedCandidate = parseCompletedFilter((ctx.query as any)?.filters?.completed?.$eq);
+
+		if ('invalid' in completedCandidate && completedCandidate.invalid) {
+			return ctx.badRequest('Invalid completed filter value. Use true or false.');
+		}
+
+		const completedFilterValue =
+			completedCandidate.provided && 'value' in completedCandidate
+				? completedCandidate.value
+				: undefined;
+
+		const treeTodos = await treeService.findUserTodoTree(authUser.id, {
+			maxLevels,
+			titleContains,
+			...(typeof completedFilterValue === 'boolean' ? { completed: completedFilterValue } : {}),
+		});
 		const sanitizedTodos = treeTodos.map((todo) => sanitizeTodoForResponse(todo as Record<string, unknown>));
 
 		if (isDebug) {
 			strapi.log.info(
-				`[todo.find] userId=${authUser.id} tree=true maxLevels=${maxLevels} roots=${sanitizedTodos.length} ids=${sanitizedTodos
+				`[todo.find] userId=${authUser.id} tree=true maxLevels=${maxLevels} titleContains=${titleContains ? `"${titleContains}"` : 'none'} completedFilter=${typeof completedFilterValue === 'boolean' ? String(completedFilterValue) : 'none'} roots=${sanitizedTodos.length} ids=${sanitizedTodos
 					.map((todo: any) => todo?.id)
 					.filter((id: unknown) => typeof id === 'number')
 					.join(',')}`

@@ -33,6 +33,8 @@ type TreeTodo = {
 
 type TreeOptions = {
 	maxLevels?: number;
+	titleContains?: string;
+	completed?: boolean;
 };
 
 const getRelationId = (value: unknown): number | null => {
@@ -114,15 +116,33 @@ const pruneToMaxLevels = (roots: TreeTodo[], maxLevels: number): TreeTodo[] => {
 export default factories.createCoreService('api::todo.todo', () => ({
 	async findUserTodoTree(userId: number, options: TreeOptions = {}): Promise<TreeTodo[]> {
 		const maxLevels = clampMaxLevels(options.maxLevels);
+		const titleContains =
+			typeof options.titleContains === 'string' ? options.titleContains.trim() : '';
+		const hasTitleFilter = titleContains.length > 0;
+		const hasCompletedFilter = typeof options.completed === 'boolean';
+
+		const filters: Record<string, unknown> = {
+			user: {
+				id: {
+					$eq: userId,
+				},
+			},
+		};
+
+		if (hasTitleFilter) {
+			filters.title = {
+				$containsi: titleContains,
+			};
+		}
+
+		if (hasCompletedFilter) {
+			filters.completed = {
+				$eq: options.completed,
+			};
+		}
 
 		const records = await strapi.entityService.findMany('api::todo.todo', {
-			filters: {
-				user: {
-					id: {
-						$eq: userId,
-					},
-				},
-			} as any,
+			filters: filters as any,
 			populate: {
 				parent: {
 					fields: ['id'],
@@ -180,7 +200,7 @@ export default factories.createCoreService('api::todo.todo', () => ({
 
 		if (process.env.NODE_ENV !== 'production') {
 			strapi.log.info(
-				`[todo.tree] userId=${userId} total=${todos.length} roots=${roots.length} maxLevels=${maxLevels} queries=1`
+				`[todo.tree] userId=${userId} total=${todos.length} roots=${roots.length} maxLevels=${maxLevels} titleFilter=${hasTitleFilter} completedFilter=${hasCompletedFilter} queries=1`
 			);
 		}
 
