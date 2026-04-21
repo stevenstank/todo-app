@@ -71,6 +71,12 @@
       "relation": "oneToMany",
       "target": "api::todo.todo",
       "mappedBy": "user"
+    },
+    "assignedTodos": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::todo.todo",
+      "mappedBy": "assignedUser"
     }
   }
 }

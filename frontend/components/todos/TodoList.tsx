@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
+import type { AssignableUser, TodoIdentifier, TodoUiItem } from '@/types/todo';
 
 type TodoListProps = {
   todos: TodoUiItem[];
+  assignableUsers: AssignableUser[];
   updatingTodoId: TodoIdentifier | null;
   deletingTodoIds: TodoIdentifier[];
   generatingSubtasksTodoId: TodoIdentifier | null;
   onToggle: (todo: TodoUiItem) => void;
+  onAssign: (todoId: TodoIdentifier, assignedUserId: number | null) => Promise<void>;
   onDelete: (todoId: TodoIdentifier) => void;
   onCreateSubtask: (parentId: TodoIdentifier, title: string) => Promise<void>;
   onGenerateSubtasks: (todo: TodoUiItem) => Promise<void>;
@@ -14,10 +16,12 @@ type TodoListProps = {
 
 export default function TodoList({
   todos,
+  assignableUsers,
   updatingTodoId,
   deletingTodoIds,
   generatingSubtasksTodoId,
   onToggle,
+  onAssign,
   onDelete,
   onCreateSubtask,
   onGenerateSubtasks,
@@ -63,12 +67,19 @@ export default function TodoList({
     const isChild = level > 0;
     const completedChildren = (todo.children ?? []).filter((child) => child.completed).length;
     const totalChildren = todo.children?.length ?? 0;
+    const assignedUser = todo.assignedUser ?? null;
+    const isAssigned = Boolean(assignedUser);
+    const assigneeInitial = assignedUser?.username?.trim()?.charAt(0)?.toUpperCase() ?? '?';
 
     return (
       <div key={todo.id} className="space-y-2" style={{ paddingLeft: `${level * 18}px` }}>
         <article
           className={`rounded-lg border px-3 py-3 ${
-            isChild ? 'border-slate-200 bg-white' : 'border-slate-300 bg-slate-50'
+            isAssigned
+              ? 'border-blue-200 bg-blue-50/50'
+              : isChild
+                ? 'border-slate-200 bg-white'
+                : 'border-slate-300 bg-slate-50'
           }`}
         >
           <div className="flex items-center justify-between gap-3">
@@ -95,10 +106,43 @@ export default function TodoList({
                   {completedChildren}/{totalChildren} completed
                 </p>
               ) : null}
+              {assignedUser ? (
+                <div className="mt-1 flex items-center gap-2 text-xs text-blue-700">
+                  {assignedUser.avatarUrl ? (
+                    <img
+                      src={assignedUser.avatarUrl}
+                      alt={assignedUser.username}
+                      className="h-5 w-5 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 font-semibold text-white">
+                      {assigneeInitial}
+                    </span>
+                  )}
+                  <span>Assigned to {assignedUser.username}</span>
+                </div>
+              ) : null}
               </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <select
+                value={assignedUser?.id ?? ''}
+                onChange={(event) => {
+                  const next = event.target.value.trim();
+                  void onAssign(todo.id, next ? Number(next) : null);
+                }}
+                disabled={isBusy}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+                aria-label={`Assign ${todo.title} to a user`}
+              >
+                <option value="">Unassigned</option>
+                {assignableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.username}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => onDelete(todo.id)}

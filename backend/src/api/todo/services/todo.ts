@@ -12,7 +12,6 @@ type RawTodo = {
 	depth?: number;
 	parent?: unknown;
 	children?: unknown[];
-	user?: unknown;
 	assignedUser?: unknown;
 	[key: string]: unknown;
 };
@@ -23,7 +22,11 @@ type TreeTodo = {
 	completed?: boolean;
 	isCompleted?: boolean;
 	depth?: number;
-	assignedUser?: unknown;
+	assignedUser: {
+		id: number;
+		username: string;
+		avatarUrl: string | null;
+	} | null;
 	parentId: number | null;
 	children: TreeTodo[];
 };
@@ -44,18 +47,31 @@ const getRelationId = (value: unknown): number | null => {
 	return null;
 };
 
-const resolveAssigneePopulate = (): Record<string, unknown> => {
-	const todoModel = strapi.contentTypes['api::todo.todo'];
-	const attributes = (todoModel?.attributes ?? {}) as Record<string, unknown>;
-
-	if (attributes.assignedUser) {
-		return {
-			assignedUser: true,
-		};
+const toPublicAssignedUser = (value: unknown): TreeTodo['assignedUser'] => {
+	if (!value || typeof value !== 'object') {
+		return null;
 	}
 
+	const user = value as Record<string, unknown>;
+	const id = typeof user.id === 'number' ? user.id : null;
+	const username = typeof user.username === 'string' && user.username.trim().length > 0 ? user.username : null;
+
+	if (id === null || username === null) {
+		return null;
+	}
+
+	const avatarRaw = (user as any).avatar;
+	const avatarUrl =
+		typeof avatarRaw?.url === 'string'
+			? avatarRaw.url
+			: typeof avatarRaw === 'string'
+				? avatarRaw
+				: null;
+
 	return {
-		user: true,
+		id,
+		username,
+		avatarUrl,
 	};
 };
 
@@ -114,7 +130,9 @@ export default factories.createCoreService('api::todo.todo', () => ({
 				children: {
 					fields: ['id'],
 				},
-				...resolveAssigneePopulate(),
+				assignedUser: {
+					fields: ['id', 'username'],
+				},
 			},
 		});
 
@@ -123,7 +141,6 @@ export default factories.createCoreService('api::todo.todo', () => ({
 
 		for (const todo of todos) {
 			const parentId = getRelationId(todo.parent ?? null);
-			const assignee = todo.assignedUser ?? todo.user ?? null;
 			const completion =
 				typeof todo.completed === 'boolean'
 					? todo.completed
@@ -137,7 +154,7 @@ export default factories.createCoreService('api::todo.todo', () => ({
 				completed: completion,
 				isCompleted: completion,
 				depth: typeof todo.depth === 'number' ? todo.depth : undefined,
-				assignedUser: assignee,
+				assignedUser: toPublicAssignedUser(todo.assignedUser ?? null),
 				parentId,
 				children: [],
 			});

@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  assignTodoRequest,
   createTodoRequest,
+  fetchAssignableUsersRequest,
   generateSubtasksWithAiRequest,
   fetchTodosRequest,
   deleteTodoRequest,
@@ -11,7 +13,7 @@ import {
   TodoActionError,
   TodoUnauthorizedError,
 } from '@/actions/todos';
-import type { TodoIdentifier, TodoItem, TodoUiItem } from '@/types/todo';
+import type { AssignableUser, TodoIdentifier, TodoItem, TodoUiItem } from '@/types/todo';
 import { mapTodoApiItem } from '@/types/todo';
 
 const mapIncomingTodos = (items: TodoItem[]): TodoUiItem[] =>
@@ -73,6 +75,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
 
   const [newTodo, setNewTodo] = useState('');
   const [todos, setTodos] = useState<TodoUiItem[]>(mapIncomingTodos(initialTodos));
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [updatingTodoId, setUpdatingTodoId] = useState<TodoIdentifier | null>(null);
   const [deletingTodoIds, setDeletingTodoIds] = useState<TodoIdentifier[]>([]);
@@ -83,6 +86,32 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   useEffect(() => {
     setTodos(mapIncomingTodos(initialTodos));
   }, [initialTodos]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAssignableUsers = async () => {
+      try {
+        const payload = await fetchAssignableUsersRequest();
+        const users = Array.isArray(payload.data) ? payload.data : [];
+
+        if (!cancelled) {
+          setAssignableUsers(users);
+        }
+      } catch (error) {
+        if (error instanceof TodoUnauthorizedError) {
+          router.replace('/signin');
+          router.refresh();
+        }
+      }
+    };
+
+    loadAssignableUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   const getNextTempId = () => {
     const next = nextTempIdRef.current;
@@ -113,6 +142,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       title,
       completed: false,
       parentId: null,
+      assignedUser: null,
       children: [],
       isOptimistic: true,
     };
@@ -174,6 +204,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       title,
       completed: false,
       parentId,
+      assignedUser: null,
       children: [],
       isOptimistic: true,
     };
@@ -225,6 +256,28 @@ export const useTodos = (initialTodos: TodoItem[]) => {
       }
 
       setActionError(error instanceof TodoActionError ? error.message : 'Could not update todo');
+    } finally {
+      setUpdatingTodoId(null);
+    }
+  };
+
+  const handleAssign = async (todoId: TodoIdentifier, assignedUserId: number | null) => {
+    setUpdatingTodoId(todoId);
+    setActionError('');
+
+    try {
+      await assignTodoRequest(todoId, assignedUserId);
+      const latest = await fetchTodosRequest('after-assign');
+      const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
+      setTodos(mapLatestTodos(latestMapped));
+    } catch (error) {
+      if (error instanceof TodoUnauthorizedError) {
+        router.replace('/signin');
+        router.refresh();
+        return;
+      }
+
+      setActionError(error instanceof TodoActionError ? error.message : 'Could not assign todo');
     } finally {
       setUpdatingTodoId(null);
     }
@@ -308,6 +361,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
 
   return {
     todos,
+    assignableUsers,
     newTodo,
     isCreating,
     updatingTodoId,
@@ -319,6 +373,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     clearCreateError: () => setCreateError(''),
     handleCreate,
     handleCreateSubtask,
+    handleAssign,
     handleGenerateSubtasks,
     handleToggle,
     handleDelete,

@@ -20,6 +20,7 @@ export default function TodosClient({
   const [isLoggingOut, startLogoutTransition] = useTransition();
   const {
     todos,
+    assignableUsers,
     newTodo,
     isCreating,
     updatingTodoId,
@@ -31,6 +32,7 @@ export default function TodosClient({
     clearCreateError,
     handleCreate,
     handleCreateSubtask,
+    handleAssign,
     handleGenerateSubtasks,
     handleToggle,
     handleDelete,
@@ -100,10 +102,12 @@ export default function TodosClient({
 
           <TodoList
             todos={todos}
+            assignableUsers={assignableUsers}
             updatingTodoId={updatingTodoId}
             deletingTodoIds={deletingTodoIds}
             generatingSubtasksTodoId={generatingSubtasksTodoId}
             onToggle={handleToggle}
+            onAssign={handleAssign}
             onDelete={handleDelete}
             onCreateSubtask={handleCreateSubtask}
             onGenerateSubtasks={handleGenerateSubtasks}
