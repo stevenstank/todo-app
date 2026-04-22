@@ -33,12 +33,6 @@
       "target": "plugin::users-permissions.user",
       "inversedBy": "todos"
     },
-    "assignedUser": {
-      "type": "relation",
-      "relation": "manyToOne",
-      "target": "plugin::users-permissions.user",
-      "inversedBy": "assignedTodos"
-    },
     "parent": {
       "type": "relation",
       "relation": "manyToOne",

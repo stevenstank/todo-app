@@ -129,28 +129,6 @@ const extractIdentifierInput = (field: string, data: Record<string, unknown>): E
 const extractParentInput = (data: Record<string, unknown>): ExtractedIdentifier =>
 	extractIdentifierInput('parent', data);
 
-const extractAssignedUserInput = (data: Record<string, unknown>): ExtractedIdentifier =>
-	extractIdentifierInput('assignedUser', data);
-
-const parseUserId = (identifier: number | string): number | null => {
-	if (typeof identifier === 'number' && Number.isInteger(identifier)) {
-		return identifier;
-	}
-
-	if (typeof identifier !== 'string') {
-		return null;
-	}
-
-	const trimmed = identifier.trim();
-
-	if (!/^\d+$/.test(trimmed)) {
-		return null;
-	}
-
-	const numeric = Number(trimmed);
-	return Number.isInteger(numeric) ? numeric : null;
-};
-
 const getOwnerId = (todo: any): number | null => {
 	if (!todo?.user) {
 		return null;
@@ -202,77 +180,14 @@ const resolveTodoByIdentifier = async (
 	return todo;
 };
 
-const resolveUserByIdentifier = async (
-	identifier: number | string,
-	populate: Record<string, unknown> = {}
-) => {
-	const userId = parseUserId(identifier);
-
-	if (userId === null) {
-		return null;
-	}
-
-	return strapi.entityService.findOne('plugin::users-permissions.user', userId, {
-		populate,
-	});
-};
-
-const hasUserSystemAttribute = (): boolean => {
-	const userModel = strapi.contentTypes['plugin::users-permissions.user'];
-	const attributes = (userModel?.attributes ?? {}) as Record<string, unknown>;
-	return hasOwn(attributes, 'system');
-};
-
-const getSystemId = (user: any): number | null => getRelationId(user?.system ?? null);
-
-const sanitizeAssignedUser = (value: unknown): { id: number; username: string; avatarUrl: string | null } | null => {
-	if (!value || typeof value !== 'object') {
-		return null;
-	}
-
-	const user = value as Record<string, unknown>;
-	const id = typeof user.id === 'number' ? user.id : null;
-	const username = typeof user.username === 'string' && user.username.trim().length > 0 ? user.username : null;
-
-	if (id === null || username === null) {
-		return null;
-	}
-
-	const avatarRaw = (user as any)?.avatar;
-	const avatarUrl =
-		typeof avatarRaw?.url === 'string'
-			? avatarRaw.url
-			: typeof avatarRaw === 'string'
-				? avatarRaw
-				: null;
-
-	return {
-		id,
-		username,
-		avatarUrl,
-	};
-};
-
 const sanitizeTodoForResponse = <T extends Record<string, unknown>>(todo: T): T => {
 	if (!todo || typeof todo !== 'object') {
 		return todo;
 	}
 
-	const { user: _owner, ...rest } = todo as T & {
-		user?: unknown;
-		assignedUser?: unknown;
-	};
+	const { user: _owner, ...rest } = todo as T & { user?: unknown };
 
-	if (!hasOwn(rest as Record<string, unknown>, 'assignedUser')) {
-		return rest as T;
-	}
-
-	const normalizedAssignedUser = sanitizeAssignedUser((rest as any).assignedUser);
-
-	return {
-		...rest,
-		assignedUser: normalizedAssignedUser,
-	} as T;
+	return rest as T;
 };
 
 const validateNoCircularParent = async (todoId: number, candidateParentId: number): Promise<boolean> => {
@@ -359,11 +274,42 @@ const recomputeParentCompletion = async (parentId: number, userId: number, visit
 	}
 };
 
+const getOwnedChildrenCompletionSummary = async (
+	parentId: number,
+	userId: number
+): Promise<{ total: number; completed: number; allCompleted: boolean }> => {
+	const children = await strapi.entityService.findMany('api::todo.todo', {
+		filters: {
+			parent: {
+				id: {
+					$eq: parentId,
+				},
+			},
+			user: {
+				id: {
+					$eq: userId,
+				},
+			},
+		} as any,
+		fields: ['id', 'completed', 'isCompleted'],
+	});
+
+	const childTodos = Array.isArray(children) ? children : [];
+	const total = childTodos.length;
+	const completed = childTodos.filter((child) => getTodoCompleted(child)).length;
+
+	return {
+		total,
+		completed,
+		allCompleted: total > 0 && completed === total,
+	};
+};
+
 const isDebug = process.env.NODE_ENV !== 'production';
 
 const findOwnedTodoOrFail = async (ctx: any, todoId: string | number, authUserId: number) => {
 	const normalized = String(todoId);
-	const todo = await resolveTodoByIdentifier(normalized, { user: true, assignedUser: true } as any);
+	const todo = await resolveTodoByIdentifier(normalized, { user: true });
 
 	if (!todo) {
 		ctx.notFound('Todo not found');
@@ -383,84 +329,6 @@ const findOwnedTodoOrFail = async (ctx: any, todoId: string | number, authUserId
 
 	return todo;
 };
-
-const resolveAssignmentForRequest = async (
-	ctx: any,
-	authUserId: number,
-	assignmentInput: ExtractedIdentifier
-): Promise<{ provided: boolean; assignedUserId: number | null } | null> => {
-	if (!assignmentInput.provided) {
-		return { provided: false, assignedUserId: null };
-	}
-
-	if ('invalid' in assignmentInput && assignmentInput.invalid) {
-		ctx.badRequest('Invalid assignedUser relation payload');
-		return null;
-	}
-
-	if (!('value' in assignmentInput)) {
-		ctx.badRequest('Invalid assignedUser relation payload');
-		return null;
-	}
-
-	const assignmentValue = assignmentInput.value;
-
-	if (assignmentValue === null) {
-		return { provided: true, assignedUserId: null };
-	}
-
-	const populateSystem = hasUserSystemAttribute() ? { system: true } : {};
-	const assignedUser = await resolveUserByIdentifier(assignmentValue, populateSystem as any);
-
-	if (!assignedUser) {
-		ctx.badRequest('Assigned user not found');
-		return null;
-	}
-
-	if (hasUserSystemAttribute()) {
-		const authUser = await strapi.entityService.findOne('plugin::users-permissions.user', authUserId, {
-			populate: {
-				system: true,
-			} as any,
-		});
-
-		if (!authUser) {
-			ctx.unauthorized('Authentication required');
-			return null;
-		}
-
-		const ownerSystemId = getSystemId(authUser);
-		const assigneeSystemId = getSystemId(assignedUser);
-
-		if (
-			ownerSystemId === null ||
-			assigneeSystemId === null ||
-			ownerSystemId !== assigneeSystemId
-		) {
-			ctx.forbidden('Assigned user must belong to the same system');
-			return null;
-		}
-	}
-
-	const assignedUserId =
-		typeof assignedUser.id === 'number' ? assignedUser.id : Number(assignedUser.id);
-
-	if (!Number.isInteger(assignedUserId)) {
-		ctx.badRequest('Assigned user not found');
-		return null;
-	}
-
-	return {
-		provided: true,
-		assignedUserId,
-	};
-};
-
-const toAssignableUser = (user: any) => ({
-	id: user.id,
-	username: typeof user.username === 'string' ? user.username : `User ${user.id}`,
-	avatarUrl: null,
-});
 
 const parseCompletedFilter = (
 	value: unknown
@@ -488,52 +356,32 @@ const parseCompletedFilter = (
 	return { provided: true, invalid: true };
 };
 
+const validateTitleLength = (
+	ctx: any,
+	data: Record<string, unknown>,
+	options: { required: boolean }
+): boolean => {
+	if (!hasOwn(data, 'title')) {
+		return !options.required;
+	}
+
+	if (typeof data.title !== 'string') {
+		ctx.badRequest('Title must be a string');
+		return false;
+	}
+
+	const normalized = data.title.trim();
+
+	if (normalized.length < 3) {
+		ctx.badRequest('Title must be at least 3 characters long');
+		return false;
+	}
+
+	data.title = normalized;
+	return true;
+};
+
 export default factories.createCoreController('api::todo.todo', () => ({
-	async listAssignableUsers(ctx) {
-		const authUser = getAuthUser(ctx);
-
-		if (!authUser) {
-			return ctx.unauthorized('Authentication required');
-		}
-
-		const enforceSameSystem = hasUserSystemAttribute();
-		let systemFilter: Record<string, unknown> | null = null;
-
-		if (enforceSameSystem) {
-			const owner = await strapi.entityService.findOne('plugin::users-permissions.user', authUser.id, {
-				populate: {
-					system: true,
-				} as any,
-			});
-
-			const ownerSystemId = getSystemId(owner);
-
-			if (ownerSystemId !== null) {
-				systemFilter = {
-					system: {
-						id: {
-							$eq: ownerSystemId,
-						},
-					},
-				};
-			}
-		}
-
-		const users = await strapi.entityService.findMany('plugin::users-permissions.user', {
-			filters: {
-				...(systemFilter ?? {}),
-				blocked: {
-					$eq: false,
-				},
-			} as any,
-			fields: ['id', 'username'],
-			sort: ['username:asc'],
-		});
-
-		const mapped = (Array.isArray(users) ? users : []).map(toAssignableUser);
-		return ctx.send({ data: mapped });
-	},
-
 	async create(ctx) {
 		const authUser = getAuthUser(ctx);
 
@@ -543,17 +391,13 @@ export default factories.createCoreController('api::todo.todo', () => ({
 
 		const incomingData = ctx.request.body?.data;
 		const safeData = syncCompletionFields(withoutRestrictedFields(incomingData));
+		if (!validateTitleLength(ctx, safeData, { required: true })) {
+			return;
+		}
 		const parentInput = extractParentInput(safeData);
-		const assignedUserInput = extractAssignedUserInput(safeData);
 
 		if ('invalid' in parentInput && parentInput.invalid) {
 			return ctx.badRequest('Invalid parent relation payload');
-		}
-
-		const assignmentResolution = await resolveAssignmentForRequest(ctx, authUser.id, assignedUserInput);
-
-		if (!assignmentResolution) {
-			return;
 		}
 
 		let resolvedParentId: number | null = null;
@@ -570,12 +414,22 @@ export default factories.createCoreController('api::todo.todo', () => ({
 				return ctx.forbidden('Parent todo does not belong to the authenticated user');
 			}
 
+			// When adding a new subtask under a completed parent, force parent back to incomplete.
+			if (getTodoCompleted(parentTodo)) {
+				await strapi.entityService.update('api::todo.todo', parentTodo.id, {
+					data: {
+						completed: false,
+						isCompleted: false,
+					} as any,
+				});
+			}
+
 			resolvedParentId = parentTodo.id;
 			computedDepth = (typeof (parentTodo as any).depth === 'number' ? (parentTodo as any).depth : 0) + 1;
-		}
 
-		if (assignmentResolution.provided) {
-			(safeData as any).assignedUser = assignmentResolution.assignedUserId;
+			// New subtasks must start incomplete, so parent state can be derived correctly.
+			(safeData as any).completed = false;
+			(safeData as any).isCompleted = false;
 		}
 
 		const todo = await strapi.entityService.create('api::todo.todo', {
@@ -587,10 +441,22 @@ export default factories.createCoreController('api::todo.todo', () => ({
 				depth: computedDepth,
 				user: authUser.id,
 			} as any,
-			populate: {
-				assignedUser: true,
-			} as any,
 		});
+
+		if (resolvedParentId !== null) {
+			console.log('Saved subtask:', {
+				id: (todo as any)?.id,
+				parent: resolvedParentId,
+				title: (todo as any)?.title,
+			});
+			await recomputeParentCompletion(resolvedParentId, authUser.id);
+		}
+
+		if (resolvedParentId !== null && isDebug) {
+			strapi.log.info(
+				`[todo.subtask.create] parentId=${resolvedParentId} createdSubtaskId=${(todo as any)?.id ?? 'unknown'} title=${(todo as any)?.title ?? 'unknown'}`
+			);
+		}
 
 		return this.transformResponse(sanitizeTodoForResponse(todo as Record<string, unknown>));
 	},
@@ -609,7 +475,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			) => Promise<any[]>;
 		};
 
-		const maxLevels = 2;
+		const maxLevels = 20;
 		const rawTitleFilter = (ctx.query as any)?.filters?.title?.$containsi;
 		const titleContains = typeof rawTitleFilter === 'string' ? rawTitleFilter.trim() : '';
 		const completedCandidate = parseCompletedFilter((ctx.query as any)?.filters?.completed?.$eq);
@@ -680,8 +546,10 @@ export default factories.createCoreController('api::todo.todo', () => ({
 
 		const incomingData = ctx.request.body?.data;
 		const safeData = syncCompletionFields(withoutRestrictedFields(incomingData));
+		if (!validateTitleLength(ctx, safeData, { required: false })) {
+			return;
+		}
 		const parentInput = extractParentInput(safeData);
-		const assignedUserInput = extractAssignedUserInput(safeData);
 		const existingWithParent = await strapi.entityService.findOne('api::todo.todo', existingTodo.id, {
 			populate: {
 				parent: true,
@@ -691,16 +559,6 @@ export default factories.createCoreController('api::todo.todo', () => ({
 
 		if ('invalid' in parentInput && parentInput.invalid) {
 			return ctx.badRequest('Invalid parent relation payload');
-		}
-
-		const assignmentResolution = await resolveAssignmentForRequest(ctx, authUser.id, assignedUserInput);
-
-		if (!assignmentResolution) {
-			return;
-		}
-
-		if (assignmentResolution.provided) {
-			(safeData as any).assignedUser = assignmentResolution.assignedUserId;
 		}
 
 		if (parentInput.provided && !('invalid' in parentInput)) {
@@ -734,11 +592,18 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			}
 		}
 
+		const childSummary = await getOwnedChildrenCompletionSummary(existingTodo.id, authUser.id);
+		const manualCompletionUpdateAttempt =
+			hasOwn(safeData, 'completed') || hasOwn(safeData, 'isCompleted');
+
+		// Parent completion is derived from children and cannot be manually set.
+		if (childSummary.total > 0 && manualCompletionUpdateAttempt) {
+			(safeData as any).completed = childSummary.allCompleted;
+			(safeData as any).isCompleted = childSummary.allCompleted;
+		}
+
 		const updatedTodo = await strapi.entityService.update('api::todo.todo', existingTodo.id, {
 			data: safeData as any,
-			populate: {
-				assignedUser: true,
-			} as any,
 		});
 
 		const updatedWithParent = await strapi.entityService.findOne('api::todo.todo', existingTodo.id, {

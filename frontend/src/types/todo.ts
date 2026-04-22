@@ -1,17 +1,5 @@
 export type TodoIdentifier = string;
 
-export type TodoAssignedUser = {
-  id: number;
-  username: string;
-  avatarUrl?: string | null;
-};
-
-export type AssignableUser = {
-  id: number;
-  username: string;
-  avatarUrl?: string | null;
-};
-
 export type TodoItem = {
   id: TodoIdentifier;
   numericId?: number;
@@ -22,21 +10,11 @@ export type TodoItem = {
   completedChildren?: number;
   totalChildren?: number;
   parentId?: TodoIdentifier | null;
-  assignedUser?: TodoAssignedUser | null;
   children: TodoItem[];
 };
 
 export type TodoUiItem = TodoItem & {
   isOptimistic?: boolean;
-};
-
-export type TodoApiUser = {
-  id?: number;
-  username?: string;
-  avatarUrl?: string | null;
-  avatar?: {
-    url?: string;
-  } | string | null;
 };
 
 export type TodoApiItem = {
@@ -47,7 +25,6 @@ export type TodoApiItem = {
   completedChildren?: number;
   totalChildren?: number;
   parentId?: number | string | null;
-  assignedUser?: TodoApiUser | null;
   completed?: boolean;
   isCompleted?: boolean;
   children?: TodoApiItem[];
@@ -57,7 +34,6 @@ export type TodoApiItem = {
     completedChildren?: number;
     totalChildren?: number;
     parentId?: number | string | null;
-    assignedUser?: TodoApiUser | null;
     completed?: boolean;
     isCompleted?: boolean;
     children?: {
@@ -75,13 +51,6 @@ export type TodoPayload = {
 
 export type TodosPayload = {
   data?: TodoApiItem[];
-  error?: {
-    message?: string;
-  };
-};
-
-export type AssignableUsersPayload = {
-  data?: AssignableUser[];
   error?: {
     message?: string;
   };
@@ -106,34 +75,6 @@ const resolveChildren = (todo: TodoApiItem): TodoApiItem[] => {
 
   const nested = todo.attributes?.children?.data;
   return Array.isArray(nested) ? nested : [];
-};
-
-const mapTodoApiUser = (value: TodoApiUser | null | undefined): TodoAssignedUser | null => {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const id = typeof value.id === 'number' ? value.id : null;
-  const username = typeof value.username === 'string' ? value.username.trim() : '';
-
-  if (id === null || username.length === 0) {
-    return null;
-  }
-
-  const avatarFromObject = value.avatar && typeof value.avatar === 'object' ? value.avatar.url : null;
-  const avatarFromString = typeof value.avatar === 'string' ? value.avatar : null;
-  const avatarUrl =
-    typeof value.avatarUrl === 'string'
-      ? value.avatarUrl
-      : typeof avatarFromObject === 'string'
-        ? avatarFromObject
-        : avatarFromString;
-
-  return {
-    id,
-    username,
-    avatarUrl: avatarUrl ?? null,
-  };
 };
 
 export const mapTodoApiItem = (todo: TodoApiItem): TodoItem => {
@@ -169,7 +110,6 @@ export const mapTodoApiItem = (todo: TodoApiItem): TodoItem => {
       toIdentifier(todo.attributes?.parentId) ??
       toIdentifier(todo.parentId) ??
       null,
-    assignedUser: mapTodoApiUser(todo.attributes?.assignedUser ?? todo.assignedUser),
     children: resolveChildren(todo).map(mapTodoApiItem),
   };
 };

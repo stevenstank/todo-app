@@ -1,15 +1,13 @@
 import { useMemo, useState } from 'react';
 import TodoItem from '@root/components/todos/TodoItem';
-import type { AssignableUser, TodoIdentifier, TodoUiItem } from '@/types/todo';
+import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
 
 type TodoListProps = {
   todos: TodoUiItem[];
-  assignableUsers: AssignableUser[];
   updatingTodoId: TodoIdentifier | null;
   deletingTodoIds: TodoIdentifier[];
   generatingSubtasksTodoId: TodoIdentifier | null;
   onToggle: (todo: TodoUiItem) => void;
-  onAssign: (todoId: TodoIdentifier, assignedUserId: number | null) => Promise<void>;
   onDelete: (todoId: TodoIdentifier) => void;
   onCreateSubtask: (parentId: TodoIdentifier, title: string) => Promise<void>;
   onGenerateSubtasks: (todo: TodoUiItem) => Promise<void>;
@@ -17,12 +15,10 @@ type TodoListProps = {
 
 export default function TodoList({
   todos,
-  assignableUsers,
   updatingTodoId,
   deletingTodoIds,
   generatingSubtasksTodoId,
   onToggle,
-  onAssign,
   onDelete,
   onCreateSubtask,
   onGenerateSubtasks,
@@ -83,7 +79,6 @@ export default function TodoList({
           key={todo.id}
           todo={todo}
           level={0}
-          assignableUsers={assignableUsers}
           updatingTodoId={updatingTodoId}
           deletingTodoIds={deletingTodoIds}
           generatingSubtasksTodoId={generatingSubtasksTodoId}
@@ -96,7 +91,6 @@ export default function TodoList({
           onSubtaskEditorToggle={handleSubtaskEditorToggle}
           onSubtaskSubmit={handleSubtaskSubmit}
           onToggle={onToggle}
-          onAssign={onAssign}
           onDelete={onDelete}
           onGenerateSubtasks={onGenerateSubtasks}
         />

@@ -12,7 +12,6 @@ type RawTodo = {
 	depth?: number;
 	parent?: unknown;
 	children?: unknown[];
-	assignedUser?: unknown;
 	[key: string]: unknown;
 };
 
@@ -24,11 +23,6 @@ type TreeTodo = {
 	depth?: number;
 	completedChildren: number;
 	totalChildren: number;
-	assignedUser: {
-		id: number;
-		username: string;
-		avatarUrl: string | null;
-	} | null;
 	parentId: number | null;
 	children: TreeTodo[];
 };
@@ -51,36 +45,9 @@ const getRelationId = (value: unknown): number | null => {
 	return null;
 };
 
-const toPublicAssignedUser = (value: unknown): TreeTodo['assignedUser'] => {
-	if (!value || typeof value !== 'object') {
-		return null;
-	}
-
-	const user = value as Record<string, unknown>;
-	const id = typeof user.id === 'number' ? user.id : null;
-	const username = typeof user.username === 'string' && user.username.trim().length > 0 ? user.username : null;
-
-	if (id === null || username === null) {
-		return null;
-	}
-
-	const avatarRaw = (user as any).avatar;
-	const avatarUrl =
-		typeof avatarRaw?.url === 'string'
-			? avatarRaw.url
-			: typeof avatarRaw === 'string'
-				? avatarRaw
-				: null;
-
-	return {
-		id,
-		username,
-		avatarUrl,
-	};
-};
-
 const clampMaxLevels = (value: unknown): number => {
-	const DEFAULT_MAX = 2;
+	const DEFAULT_MAX = 10;
+	const MAX_ALLOWED = 20;
 
 	if (typeof value !== 'number' || !Number.isFinite(value)) {
 		return DEFAULT_MAX;
@@ -92,7 +59,7 @@ const clampMaxLevels = (value: unknown): number => {
 		return 0;
 	}
 
-	return Math.min(parsed, DEFAULT_MAX);
+	return Math.min(parsed, MAX_ALLOWED);
 };
 
 const pruneToMaxLevels = (roots: TreeTodo[], maxLevels: number): TreeTodo[] => {
@@ -145,18 +112,15 @@ export default factories.createCoreService('api::todo.todo', () => ({
 
 		const records = await strapi.entityService.findMany('api::todo.todo', {
 			filters: filters as any,
-			populate: {
-				parent: {
-					fields: ['id'],
+				populate: {
+					parent: {
+						fields: ['id'],
+					},
+					children: {
+						fields: ['id'],
+					},
 				},
-				children: {
-					fields: ['id'],
-				},
-				assignedUser: {
-					fields: ['id', 'username'],
-				},
-			},
-		});
+			});
 
 		const todos = (Array.isArray(records) ? records : []) as RawTodo[];
 		const todoMap = new Map<number, TreeTodo>();
@@ -178,7 +142,6 @@ export default factories.createCoreService('api::todo.todo', () => ({
 					depth: typeof todo.depth === 'number' ? todo.depth : undefined,
 					completedChildren: 0,
 					totalChildren: 0,
-					assignedUser: toPublicAssignedUser(todo.assignedUser ?? null),
 					parentId,
 					children: [],
 				});

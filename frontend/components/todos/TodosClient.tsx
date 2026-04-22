@@ -12,15 +12,16 @@ import { useTodos } from '@/lib/todos/useTodos';
 export default function TodosClient({
   initialTodos,
   noticeMessage,
+  initialError,
 }: {
   initialTodos: TodoItem[];
   noticeMessage?: string;
+  initialError?: string;
 }) {
   const router = useRouter();
   const [isLoggingOut, startLogoutTransition] = useTransition();
   const {
     todos,
-    assignableUsers,
     newTodo,
     searchTerm,
     isCreating,
@@ -34,7 +35,6 @@ export default function TodosClient({
     clearCreateError,
     handleCreate,
     handleCreateSubtask,
-    handleAssign,
     handleGenerateSubtasks,
     handleToggle,
     handleDelete,
@@ -85,6 +85,10 @@ export default function TodosClient({
             </p>
           ) : null}
 
+          {initialError ? (
+            <ErrorNotice title="Failed to load todos" message={initialError} />
+          ) : null}
+
           <h2 className="text-2xl font-semibold text-slate-900">Your Todos</h2>
 
           <div>
@@ -118,12 +122,10 @@ export default function TodosClient({
 
           <TodoList
             todos={todos}
-            assignableUsers={assignableUsers}
             updatingTodoId={updatingTodoId}
             deletingTodoIds={deletingTodoIds}
             generatingSubtasksTodoId={generatingSubtasksTodoId}
             onToggle={handleToggle}
-            onAssign={handleAssign}
             onDelete={handleDelete}
             onCreateSubtask={handleCreateSubtask}
             onGenerateSubtasks={handleGenerateSubtasks}

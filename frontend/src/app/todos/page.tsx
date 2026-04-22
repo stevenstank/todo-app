@@ -18,9 +18,11 @@ export default async function TodosPage({
     redirect('/signin');
   }
 
-  if (result.error) {
-    throw new Error(result.error);
-  }
-
-  return <TodosClient initialTodos={result.data} noticeMessage={noticeMessage} />;
+  return (
+    <TodosClient
+      initialTodos={result.data}
+      noticeMessage={noticeMessage}
+      initialError={result.error}
+    />
+  );
 }

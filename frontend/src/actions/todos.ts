@@ -1,6 +1,5 @@
 import { getOfflineMessage, getResponseErrorMessage, isOffline } from '@/lib/error-handler';
 import type {
-  AssignableUsersPayload,
   TodoIdentifier,
   TodoPayload,
   TodosPayload,
@@ -244,43 +243,6 @@ export const toggleTodoRequest = async (todoId: TodoIdentifier, nextCompleted: b
   }
 };
 
-export const assignTodoRequest = async (
-  todoId: TodoIdentifier,
-  assignedUserId: number | null
-): Promise<void> => {
-  try {
-    const response = await fetch(`/api/todos/${todoId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getBearerAuthHeader(),
-      },
-      cache: 'no-store',
-      body: JSON.stringify({
-        data: {
-          assignedUser: assignedUserId,
-        },
-      }),
-    });
-
-    const payload = await parseJson<TodoPayload>(response);
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.info('[todos][assign]', { todoId, assignedUserId, status: response.status, payload });
-    }
-
-    if (response.status === 401) {
-      throw new TodoUnauthorizedError('Authentication required');
-    }
-
-    if (!response.ok) {
-      throw new TodoActionError(getResponseErrorMessage(payload, 'Could not assign todo'));
-    }
-  } catch (error) {
-    throw toRequestError(error, 'Could not assign todo');
-  }
-};
-
 export const deleteTodoRequest = async (todoId: TodoIdentifier): Promise<void> => {
   try {
     const response = await fetch(`/api/todos/${todoId}`, {
@@ -309,34 +271,8 @@ export const deleteTodoRequest = async (todoId: TodoIdentifier): Promise<void> =
   }
 };
 
-export const fetchAssignableUsersRequest = async (): Promise<AssignableUsersPayload> => {
-  try {
-    const response = await fetch('/api/todos/assignable-users', {
-      method: 'GET',
-      headers: {
-        ...getBearerAuthHeader(),
-      },
-      cache: 'no-store',
-    });
-
-    const payload = await parseJson<AssignableUsersPayload>(response);
-
-    if (response.status === 401) {
-      throw new TodoUnauthorizedError('Authentication required');
-    }
-
-    if (!response.ok) {
-      throw new TodoActionError(getResponseErrorMessage(payload, 'Could not load users'));
-    }
-
-    return payload;
-  } catch (error) {
-    throw toRequestError(error, 'Could not load users');
-  }
-};
-
 export const fetchTodosRequest = async (
-  source: 'default' | 'after-create' | 'after-delete' | 'after-toggle' | 'after-assign' | 'search' = 'default',
+  source: 'default' | 'after-create' | 'after-delete' | 'after-toggle' | 'search' = 'default',
   options: FetchTodosOptions = {},
   requestOptions: FetchTodosRequestOptions = {}
 ): Promise<TodosPayload> => {
