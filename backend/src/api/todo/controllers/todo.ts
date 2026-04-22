@@ -444,11 +444,6 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		});
 
 		if (resolvedParentId !== null) {
-			console.log('Saved subtask:', {
-				id: (todo as any)?.id,
-				parent: resolvedParentId,
-				title: (todo as any)?.title,
-			});
 			await recomputeParentCompletion(resolvedParentId, authUser.id);
 		}
 
@@ -593,11 +588,9 @@ export default factories.createCoreController('api::todo.todo', () => ({
 		}
 
 		const childSummary = await getOwnedChildrenCompletionSummary(existingTodo.id, authUser.id);
-		const manualCompletionUpdateAttempt =
-			hasOwn(safeData, 'completed') || hasOwn(safeData, 'isCompleted');
 
-		// Parent completion is derived from children and cannot be manually set.
-		if (childSummary.total > 0 && manualCompletionUpdateAttempt) {
+		// Parent completion is always derived from children when children exist.
+		if (childSummary.total > 0) {
 			(safeData as any).completed = childSummary.allCompleted;
 			(safeData as any).isCompleted = childSummary.allCompleted;
 		}

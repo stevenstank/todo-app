@@ -122,6 +122,7 @@ export default function TodosClient({
 
           <TodoList
             todos={todos}
+            searchTerm={searchTerm}
             updatingTodoId={updatingTodoId}
             deletingTodoIds={deletingTodoIds}
             generatingSubtasksTodoId={generatingSubtasksTodoId}

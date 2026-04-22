@@ -3,6 +3,7 @@ import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
 type TodoItemProps = {
   todo: TodoUiItem;
   level: number;
+  visibleTodoIds: Set<TodoIdentifier> | null;
   updatingTodoId: TodoIdentifier | null;
   deletingTodoIds: TodoIdentifier[];
   generatingSubtasksTodoId: TodoIdentifier | null;
@@ -22,6 +23,7 @@ type TodoItemProps = {
 export default function TodoItem({
   todo,
   level,
+  visibleTodoIds,
   updatingTodoId,
   deletingTodoIds,
   generatingSubtasksTodoId,
@@ -37,6 +39,10 @@ export default function TodoItem({
   onDelete,
   onGenerateSubtasks,
 }: TodoItemProps) {
+  if (visibleTodoIds && !visibleTodoIds.has(todo.id)) {
+    return null;
+  }
+
   const isUpdating = updatingTodoId === todo.id;
   const isDeleting = deletingTodoIds.includes(todo.id);
   const isCreatingSubtask = submittingParentId === todo.id;
@@ -45,18 +51,13 @@ export default function TodoItem({
   const hasChildren = (todo.children?.length ?? 0) > 0;
   const isExpanded = isTodoExpanded(todo.id);
   const isChild = level > 0;
-  const isCompletedParent = hasChildren && todo.completed;
-  const disableSubtaskActions = isBusy || isCompletedParent;
   const computedCompletedChildren = (todo.children ?? []).filter((child) => child.completed).length;
   const computedTotalChildren = todo.children?.length ?? 0;
   const completedChildren = computedCompletedChildren;
-  const totalChildren =
-    typeof todo.totalChildren === 'number'
-      ? Math.max(todo.totalChildren, computedTotalChildren)
-      : computedTotalChildren;
+  const totalChildren = computedTotalChildren;
   const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
   const titleClass = hasChildren ? 'text-base font-semibold' : 'text-sm font-medium';
-  const completedClasses = todo.completed ? 'text-green-600 line-through opacity-80' : 'text-slate-900';
+  const completedClasses = todo.completed ? 'text-green-600 line-through' : 'text-slate-900';
 
   return (
     <div className={`space-y-2 ${isChild ? 'border-l border-slate-200 pl-2' : ''}`} style={{ paddingLeft: `${level * 18}px` }}>
@@ -89,7 +90,7 @@ export default function TodoItem({
               checked={todo.completed}
               onChange={() => onToggle(todo)}
               disabled={isBusy || hasChildren}
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400 disabled:cursor-not-allowed"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-400 disabled:cursor-not-allowed"
               aria-label={`Mark ${todo.title} as ${todo.completed ? 'pending' : 'completed'}`}
             />
             <div>
@@ -105,7 +106,7 @@ export default function TodoItem({
                 <p className="mt-0.5 text-[11px] text-slate-500">Status is derived from subtasks</p>
               ) : null}
               {hasChildren ? (
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 text-xs text-green-700">
                   {completedChildren}/{totalChildren} completed
                 </p>
               ) : null}
@@ -133,16 +134,14 @@ export default function TodoItem({
             <button
               type="button"
               onClick={() => onSubtaskEditorToggle(todo.id)}
-              disabled={disableSubtaskActions}
-              className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
             >
               Add Subtask
             </button>
             <button
               type="button"
               onClick={() => onGenerateSubtasks(todo)}
-              disabled={disableSubtaskActions}
-              className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100"
             >
               {isGenerating ? 'Generating...' : 'Generate Subtasks with AI'}
             </button>
@@ -182,6 +181,7 @@ export default function TodoItem({
               key={child.id}
               todo={child}
               level={level + 1}
+              visibleTodoIds={visibleTodoIds}
               updatingTodoId={updatingTodoId}
               deletingTodoIds={deletingTodoIds}
               generatingSubtasksTodoId={generatingSubtasksTodoId}
