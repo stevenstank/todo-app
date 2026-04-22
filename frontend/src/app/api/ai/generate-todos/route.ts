@@ -47,15 +47,6 @@ export async function POST(request: NextRequest) {
     });
 
     const rawText = await response.text();
-    let payload: unknown = {};
-
-    if (rawText) {
-      try {
-        payload = JSON.parse(rawText);
-      } catch {
-        payload = { error: { message: rawText } };
-      }
-    }
 
     if (!response.ok) {
       console.error('[api/ai/generate-todos] Strapi error response:', {
@@ -64,7 +55,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(payload, { status: response.status });
+    return new NextResponse(rawText || '{}', {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('content-type') || 'application/json',
+      },
+    });
   } catch (error) {
     console.error('[api/ai/generate-todos] Next API Error:', error);
     return NextResponse.json({ error: { message: 'Proxy failed' } }, { status: 500 });

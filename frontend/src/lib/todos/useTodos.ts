@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import {
   createTodoRequest,
   generateSubtasksWithAiRequest,
-  fetchTodosRequest,
   deleteTodoRequest,
   toggleTodoRequest,
   TodoActionError,
@@ -46,6 +45,22 @@ const removeTodoFromTree = (items: TodoUiItem[], targetId: TodoIdentifier): Todo
       children: removeTodoFromTree(item.children ?? [], targetId),
     }));
 
+const replaceTodoInTree = (
+  items: TodoUiItem[],
+  targetId: TodoIdentifier,
+  replacement: TodoUiItem
+): TodoUiItem[] =>
+  items.map((item) => {
+    if (item.id === targetId) {
+      return replacement;
+    }
+
+    return {
+      ...item,
+      children: replaceTodoInTree(item.children ?? [], targetId, replacement),
+    };
+  });
+
 const insertSubtaskOptimistically = (
   items: TodoUiItem[],
   parentId: TodoIdentifier,
@@ -65,6 +80,28 @@ const insertSubtaskOptimistically = (
     };
   });
 
+const reconcileCompletion = (items: TodoUiItem[]): TodoUiItem[] =>
+  items.map((item) => {
+    const children = reconcileCompletion(item.children ?? []);
+    const totalChildren = children.length;
+    const completedChildren = children.filter((child) => child.completed).length;
+
+    if (totalChildren === 0) {
+      return {
+        ...item,
+        children,
+      };
+    }
+
+    return {
+      ...item,
+      children,
+      completed: completedChildren === totalChildren,
+      completedChildren,
+      totalChildren,
+    };
+  });
+
 export const useTodos = (initialTodos: TodoItem[]) => {
   const router = useRouter();
   const nextTempIdRef = useRef(1);
@@ -72,10 +109,11 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   const deleteRequestSeqRef = useRef(0);
 
   const [newTodo, setNewTodo] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [todos, setTodos] = useState<TodoUiItem[]>(mapIncomingTodos(initialTodos));
   const [isCreating, setIsCreating] = useState(false);
-  const [updatingTodoId, setUpdatingTodoId] = useState<TodoIdentifier | null>(null);
+  const [updatingTodoIds, setUpdatingTodoIds] = useState<TodoIdentifier[]>([]);
   const [deletingTodoIds, setDeletingTodoIds] = useState<TodoIdentifier[]>([]);
   const [generatingSubtasksTodoId, setGeneratingSubtasksTodoId] = useState<TodoIdentifier | null>(null);
   const [createError, setCreateError] = useState('');
@@ -85,25 +123,24 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     setTodos(mapIncomingTodos(initialTodos));
   }, [initialTodos]);
 
+  useEffect(() => {
+    const debounceTimer = window.setTimeout(() => {
+      setSearchTerm(searchInput);
+    }, 300);
+
+    return () => {
+      window.clearTimeout(debounceTimer);
+    };
+  }, [searchInput]);
+
   const getNextTempId = () => {
     const next = nextTempIdRef.current;
     nextTempIdRef.current += 1;
     return `temp-${next}`;
   };
 
-  const refreshTodos = async (
-    source: 'after-create' | 'after-delete' | 'after-toggle'
-  ) => {
-    const latest = await fetchTodosRequest(source, {
-      searchTerm: '',
-    });
-    const latestMapped = (latest.data ?? []).map(mapTodoApiItem);
-    setTodos(mapLatestTodos(latestMapped));
-    return latestMapped;
-  };
-
   const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
+    setSearchInput(value);
   };
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -150,13 +187,26 @@ export const useTodos = (initialTodos: TodoItem[]) => {
         });
       }
 
-      await createTodoRequest(title);
-      const latestMapped = await refreshTodos('after-create');
+      const created = await createTodoRequest(title);
+      const createdItem = created.data ? mapTodoApiItem(created.data) : null;
+
+      if (createdItem) {
+        setTodos((prev) =>
+          reconcileCompletion(
+            replaceTodoInTree(prev, tempId, {
+              ...createdItem,
+              isOptimistic: false,
+            })
+          )
+        );
+      } else {
+        setTodos((prev) => prev.filter((item) => item.id !== tempId));
+      }
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][create][end]', {
           requestId,
-          afterIds: latestMapped.map((item) => item.id),
+          createdId: createdItem?.id ?? null,
         });
       }
     } catch (error) {
@@ -196,8 +246,21 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     setTodos((prev) => insertSubtaskOptimistically(prev, parentId, optimisticTodo));
 
     try {
-      await createTodoRequest(title, parentId);
-      await refreshTodos('after-create');
+      const created = await createTodoRequest(title, parentId);
+      const createdItem = created.data ? mapTodoApiItem(created.data) : null;
+
+      if (createdItem) {
+        setTodos((prev) =>
+          reconcileCompletion(
+            replaceTodoInTree(prev, tempId, {
+              ...createdItem,
+              isOptimistic: false,
+            })
+          )
+        );
+      } else {
+        setTodos((prev) => removeTodoFromTree(prev, tempId));
+      }
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -211,22 +274,27 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   };
 
   const handleToggle = async (todo: TodoUiItem) => {
-    setUpdatingTodoId(todo.id);
+    if (updatingTodoIds.includes(todo.id)) {
+      return;
+    }
+
+    setUpdatingTodoIds((prev) => [...prev, todo.id]);
     setActionError('');
 
     const nextCompleted = !todo.completed;
+    const previousTodos = todos;
 
-    try {
-      await toggleTodoRequest(todo.id, nextCompleted);
-
-      setTodos((prev) =>
+    setTodos((prev) =>
+      reconcileCompletion(
         updateTodoInTree(prev, todo.id, (item) => ({
           ...item,
           completed: nextCompleted,
         }))
-      );
+      )
+    );
 
-      await refreshTodos('after-toggle');
+    try {
+      await toggleTodoRequest(todo.id, nextCompleted);
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -234,9 +302,10 @@ export const useTodos = (initialTodos: TodoItem[]) => {
         return;
       }
 
+      setTodos(previousTodos);
       setActionError(error instanceof TodoActionError ? error.message : 'Could not update todo');
     } finally {
-      setUpdatingTodoId(null);
+      setUpdatingTodoIds((prev) => prev.filter((id) => id !== todo.id));
     }
   };
 
@@ -250,12 +319,29 @@ export const useTodos = (initialTodos: TodoItem[]) => {
 
     try {
       const subtasks = await generateSubtasksWithAiRequest(todo.title);
+      const createdPayloads = await Promise.all(
+        subtasks.map((subtaskTitle) => createTodoRequest(subtaskTitle, todo.id))
+      );
+      const createdSubtasks = createdPayloads
+        .map((payload) => payload.data)
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+        .map(mapTodoApiItem)
+        .map((item) => ({
+          ...item,
+          isOptimistic: false,
+        }));
 
-      for (const subtaskTitle of subtasks) {
-        await createTodoRequest(subtaskTitle, todo.id);
+      if (createdSubtasks.length > 0) {
+        setTodos((prev) =>
+          reconcileCompletion(
+            updateTodoInTree(prev, todo.id, (item) => ({
+              ...item,
+              completed: false,
+              children: [...createdSubtasks, ...(item.children ?? [])],
+            }))
+          )
+        );
       }
-
-      await refreshTodos('after-create');
     } catch (error) {
       if (error instanceof TodoUnauthorizedError) {
         router.replace('/signin');
@@ -269,7 +355,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     }
   };
 
-  const handleDelete = async (todoId: TodoIdentifier) => {
+  const handleDelete = async (todoId: TodoIdentifier, options: { forceDelete?: boolean } = {}) => {
     if (deletingTodoIds.includes(todoId)) {
       return;
     }
@@ -277,6 +363,8 @@ export const useTodos = (initialTodos: TodoItem[]) => {
     setActionError('');
 
     setDeletingTodoIds((prev) => [...prev, todoId]);
+    const previousTodos = todos;
+    setTodos((prev) => removeTodoFromTree(prev, todoId));
 
     try {
       const requestId = ++deleteRequestSeqRef.current;
@@ -285,18 +373,18 @@ export const useTodos = (initialTodos: TodoItem[]) => {
         console.info('[todos][delete][start]', {
           requestId,
           todoId,
+          forceDelete: Boolean(options.forceDelete),
           beforeIds: todos.map((item) => item.id),
         });
       }
 
-      await deleteTodoRequest(todoId);
-      const latestMapped = await refreshTodos('after-delete');
+      await deleteTodoRequest(todoId, options);
 
       if (process.env.NODE_ENV !== 'production') {
         console.info('[todos][delete][end]', {
           requestId,
           todoId,
-          afterIds: latestMapped.map((item) => item.id),
+          afterIds: todos.map((item) => item.id),
         });
       }
     } catch (error) {
@@ -306,6 +394,7 @@ export const useTodos = (initialTodos: TodoItem[]) => {
         return;
       }
 
+      setTodos(previousTodos);
       setActionError(error instanceof TodoActionError ? error.message : 'Could not delete todo');
     } finally {
       setDeletingTodoIds((prev) => prev.filter((id) => id !== todoId));
@@ -315,9 +404,10 @@ export const useTodos = (initialTodos: TodoItem[]) => {
   return {
     todos,
     newTodo,
+    searchInput,
     searchTerm,
     isCreating,
-    updatingTodoId,
+    updatingTodoIds,
     deletingTodoIds,
     generatingSubtasksTodoId,
     createError,

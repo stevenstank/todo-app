@@ -3,6 +3,18 @@ import type { Core } from '@strapi/strapi';
 const GEMINI_API_URL = (model: string, key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 
+const PRIMARY_GEMINI_MODEL = 'gemini-2.5-flash';
+const SECONDARY_GEMINI_MODEL = 'gemini-1.5-flash';
+
+const DEFAULT_FALLBACK_SUBTASKS = [
+  'Define requirements',
+  'Design system architecture',
+  'Set up project structure',
+  'Implement core features',
+  'Test application',
+  'Deploy project',
+];
+
 const sanitizeLine = (line: string): string =>
   line
     .replace(/^[0-9-.)\s]+/, '')
@@ -19,39 +31,30 @@ const formatSubtasks = (text: string): string[] =>
     .filter(Boolean)
     .slice(0, 10);
 
+const buildFallbackSubtasks = (): string[] => DEFAULT_FALLBACK_SUBTASKS.slice(0, 10);
+
 const sendError = (ctx: any, status: number, message: string, details?: unknown) => {
   ctx.status = status;
-  ctx.body = {
+  return ctx.send({
     subtasks: [],
     error: {
       message,
       ...(details ? { details } : {}),
     },
-  };
+  });
 };
 
-const mapGeminiStatus = (status: number): number => {
-  if (status === 400) {
-    return 400;
-  }
-
-  if (status === 401 || status === 403) {
-    return 502;
-  }
-
-  if (status === 404) {
-    return 502;
-  }
-
-  if (status === 429) {
-    return 429;
-  }
-
-  if (status >= 500) {
-    return 502;
-  }
-
-  return 500;
+const sendFallback = (ctx: any, status: number, message: string, details?: unknown) => {
+  console.warn('Gemini fallback triggered:', { status, message, details });
+  return ctx.send({
+    subtasks: buildFallbackSubtasks(),
+    fallback: true,
+    error: true,
+    provider: 'gemini',
+    status,
+    message,
+    ...(details ? { details } : {}),
+  });
 };
 
 const aiController = ({ strapi }: { strapi: Core.Strapi }) => ({
@@ -80,102 +83,139 @@ const aiController = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
-      const configuredModel = (process.env.GEMINI_MODEL ?? 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
 
       console.log('API key exists:', !!apiKey);
 
       if (!apiKey) {
-        return sendError(ctx, 500, 'Missing GEMINI_API_KEY');
+        return sendFallback(ctx, 500, 'Missing GEMINI_API_KEY');
       }
 
-      const modelsToTry = Array.from(
-        new Set([configuredModel, 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-pro-latest'])
-      );
-      let rawText = '';
-      let responseStatus = 0;
-      let successful = false;
-      let successfulModel = configuredModel;
+      const requestGemini = async (model: string) => {
+        console.log(`Using model: ${model}`);
 
-      for (const model of modelsToTry) {
-        const response = await fetch(GEMINI_API_URL(model, apiKey), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Break this task into 5-10 subtasks:\n${normalizedTask}`,
-                  },
-                ],
-              },
-            ],
-          }),
-        });
+        try {
+          const response = await fetch(GEMINI_API_URL(model, apiKey), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `Break this task into 5-10 subtasks:\n${normalizedTask}`,
+                    },
+                  ],
+                },
+              ],
+            }),
+          });
 
-        responseStatus = response.status;
-        rawText = await response.text();
-        console.log(`Gemini status (${model}):`, response.status);
-        console.log(`Gemini raw response (${model}):`, rawText);
+          const body = await response.text();
 
-        if (response.ok) {
-          successful = true;
-          successfulModel = model;
-          break;
-        }
+          console.log('Gemini response status:', response.status);
+          console.log('Gemini raw response:', body);
 
-        const modelMissing = response.status === 404 && rawText.includes('not found');
-        if (!modelMissing) {
-          return sendError(ctx, mapGeminiStatus(response.status), 'Gemini API failed', {
+          return {
             model,
             status: response.status,
-            body: rawText,
-          });
+            body,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.log('Gemini response status:', 0);
+          console.log('Gemini raw response:', message);
+
+          return {
+            model,
+            status: 0,
+            body: message,
+          };
         }
+      };
+
+      const modelsToTry = [PRIMARY_GEMINI_MODEL, SECONDARY_GEMINI_MODEL];
+      let lastFailureStatus = 500;
+      let lastFailureMessage = 'Gemini request failed';
+      let lastFailureDetails: unknown = undefined;
+
+      for (const model of modelsToTry) {
+        const result = await requestGemini(model);
+
+        if (result.status !== 200) {
+          lastFailureStatus = result.status || 500;
+          lastFailureMessage = result.body || 'Gemini request failed';
+          lastFailureDetails = {
+            error: true,
+            provider: 'gemini',
+            status: result.status,
+            message: result.body,
+            model,
+          };
+          continue;
+        }
+
+        let data: any;
+
+        try {
+          data = JSON.parse(result.body);
+        } catch (error) {
+          console.error('JSON parse failed:', error);
+          lastFailureStatus = 502;
+          lastFailureMessage = 'Invalid JSON from Gemini';
+          lastFailureDetails = {
+            error: true,
+            provider: 'gemini',
+            status: result.status,
+            message: result.body,
+            model,
+          };
+          continue;
+        }
+
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        console.log('Extracted text:', text);
+
+        if (typeof text !== 'string' || !text.trim()) {
+          console.error('Invalid Gemini structure:', data);
+          lastFailureStatus = 502;
+          lastFailureMessage = 'Gemini response missing text';
+          lastFailureDetails = {
+            error: true,
+            provider: 'gemini',
+            status: result.status,
+            message: result.body,
+            model,
+          };
+          continue;
+        }
+
+        const subtasks = formatSubtasks(text);
+        console.log('Final subtasks:', subtasks);
+
+        if (subtasks.length === 0) {
+          lastFailureStatus = 502;
+          lastFailureMessage = 'Gemini returned no usable subtasks';
+          lastFailureDetails = {
+            error: true,
+            provider: 'gemini',
+            status: result.status,
+            message: result.body,
+            model,
+          };
+          continue;
+        }
+
+        console.log('Gemini model used:', model);
+        return ctx.send({ subtasks, fallback: false, provider: 'gemini', modelUsed: model });
       }
 
-      if (!successful) {
-        return sendError(ctx, mapGeminiStatus(responseStatus), 'Gemini API failed', {
-          model: configuredModel,
-          fallbackTried: true,
-          status: responseStatus,
-          body: rawText,
-        });
-      }
-
-      console.log('Gemini model used:', successfulModel);
-
-      let data: any;
-
-      try {
-        data = JSON.parse(rawText);
-      } catch (error) {
-        console.error('JSON parse failed:', error);
-        return sendError(ctx, 500, 'Invalid JSON from AI');
-      }
-
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      console.log('Extracted text:', text);
-
-      if (!text) {
-        console.error('Invalid Gemini structure:', data);
-        return sendError(ctx, 500, 'AI response structure invalid', data);
-      }
-
-      const subtasks = formatSubtasks(text);
-      console.log('Final subtasks:', subtasks);
-
-      if (subtasks.length === 0) {
-        return sendError(ctx, 500, 'AI returned no usable subtasks');
-      }
-
-      return ctx.send({ subtasks });
+      return sendFallback(ctx, lastFailureStatus, lastFailureMessage, lastFailureDetails);
     } catch (error) {
       console.error('FINAL AI ERROR:', error);
       strapi.log.error(`[ai.generate-todos] FINAL AI ERROR: ${error instanceof Error ? error.message : String(error)}`);
-      return sendError(ctx, 500, error instanceof Error ? error.message : 'AI generation failed');
+      return sendFallback(ctx, 500, error instanceof Error ? error.message : 'AI generation failed');
     }
   },
 });

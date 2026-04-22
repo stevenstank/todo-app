@@ -75,6 +75,11 @@ const updateTodo = async (request: NextRequest, context: Context) => {
 export async function DELETE(_request: NextRequest, context: Context) {
   const token = getAuthToken() ?? readBearerToken(_request);
   const authUserId = token ? getUserIdFromToken(token) ?? getAuthUserId() : null;
+  const forceDelete = _request.nextUrl.searchParams.get('forceDelete');
+  const strapiDeletePath =
+    forceDelete === null
+      ? `/api/todos/${context.params.id}`
+      : `/api/todos/${context.params.id}?forceDelete=${encodeURIComponent(forceDelete)}`;
 
   if (!token) {
     return unauthorized();
@@ -82,15 +87,16 @@ export async function DELETE(_request: NextRequest, context: Context) {
 
   if (isDebug) {
     console.info('[todos][DELETE][request]', {
-      url: _request.nextUrl.pathname,
+      url: `${_request.nextUrl.pathname}${_request.nextUrl.search}`,
       method: _request.method,
       todoId: context.params.id,
+      forceDelete,
       hasAuthorizationHeader: Boolean(_request.headers.get('authorization')),
       hasToken: Boolean(token),
     });
   }
 
-  const response = await fetch(getStrapiUrl(`/api/todos/${context.params.id}`), {
+  const response = await fetch(getStrapiUrl(strapiDeletePath), {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${token}`,

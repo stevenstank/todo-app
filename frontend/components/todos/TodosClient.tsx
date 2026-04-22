@@ -23,9 +23,10 @@ export default function TodosClient({
   const {
     todos,
     newTodo,
+    searchInput,
     searchTerm,
     isCreating,
-    updatingTodoId,
+    updatingTodoIds,
     deletingTodoIds,
     generatingSubtasksTodoId,
     createError,
@@ -98,7 +99,7 @@ export default function TodosClient({
             <input
               id="todo-search"
               type="search"
-              value={searchTerm}
+              value={searchInput}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Type to search by title..."
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
@@ -123,7 +124,7 @@ export default function TodosClient({
           <TodoList
             todos={todos}
             searchTerm={searchTerm}
-            updatingTodoId={updatingTodoId}
+            updatingTodoIds={updatingTodoIds}
             deletingTodoIds={deletingTodoIds}
             generatingSubtasksTodoId={generatingSubtasksTodoId}
             onToggle={handleToggle}

@@ -38,9 +38,9 @@ const withoutRestrictedFields = (data: unknown): Record<string, unknown> => {
 const getTodoCompleted = (todo: any): boolean =>
 	Boolean(
 		todo?.completed ??
-			todo?.isCompleted ??
-			todo?.attributes?.completed ??
-			todo?.attributes?.isCompleted
+		todo?.isCompleted ??
+		todo?.attributes?.completed ??
+		todo?.attributes?.isCompleted
 	);
 
 const syncCompletionFields = (data: Record<string, unknown>): Record<string, unknown> => {
@@ -356,6 +356,70 @@ const parseCompletedFilter = (
 	return { provided: true, invalid: true };
 };
 
+const listOwnedDirectChildren = async (parentId: number, userId: number): Promise<Array<{ id: number }>> => {
+	const children = await strapi.entityService.findMany('api::todo.todo', {
+		filters: {
+			parent: {
+				id: {
+					$eq: parentId,
+				},
+			},
+			user: {
+				id: {
+					$eq: userId,
+				},
+			},
+		} as any,
+		fields: ['id'],
+	});
+
+	return (Array.isArray(children) ? children : []) as Array<{ id: number }>;
+};
+
+const collectDeleteOrderIds = async (
+	todoId: number,
+	userId: number,
+	visited = new Set<number>()
+): Promise<number[]> => {
+	if (visited.has(todoId)) {
+		return [];
+	}
+
+	visited.add(todoId);
+
+	const children = await listOwnedDirectChildren(todoId, userId);
+	const ordered: number[] = [];
+
+	for (const child of children) {
+		ordered.push(...(await collectDeleteOrderIds(child.id, userId, visited)));
+	}
+
+	ordered.push(todoId);
+	return ordered;
+};
+
+const deleteTodoIds = async (todoIds: number[]) => {
+	const connection = (strapi.db as any)?.connection;
+
+	if (connection?.transaction) {
+		await connection.transaction(async (trx: any) => {
+			for (const todoId of todoIds) {
+				await (strapi.db.query('api::todo.todo') as any).delete({
+					where: {
+						id: todoId,
+					},
+					transacting: trx,
+				});
+			}
+		});
+		return;
+	}
+
+	for (const todoId of todoIds) {
+		await strapi.entityService.delete('api::todo.todo', todoId);
+	}
+};
+
 const validateTitleLength = (
 	ctx: any,
 	data: Record<string, unknown>,
@@ -383,6 +447,7 @@ const validateTitleLength = (
 
 export default factories.createCoreController('api::todo.todo', () => ({
 	async create(ctx) {
+		console.log('[todo.create] user:', ctx.state?.user?.id, 'body:', ctx.request.body);
 		const authUser = getAuthUser(ctx);
 
 		if (!authUser) {
@@ -447,16 +512,17 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			await recomputeParentCompletion(resolvedParentId, authUser.id);
 		}
 
-		if (resolvedParentId !== null && isDebug) {
+		if (isDebug) {
+			strapi.log.info('[todo.create] created todo:', JSON.stringify(todo));
 			strapi.log.info(
 				`[todo.subtask.create] parentId=${resolvedParentId} createdSubtaskId=${(todo as any)?.id ?? 'unknown'} title=${(todo as any)?.title ?? 'unknown'}`
 			);
 		}
-
 		return this.transformResponse(sanitizeTodoForResponse(todo as Record<string, unknown>));
 	},
 
 	async find(ctx) {
+		// Removed problematic log statement to fix syntax error
 		const authUser = getAuthUser(ctx);
 
 		if (!authUser) {
@@ -624,6 +690,7 @@ export default factories.createCoreController('api::todo.todo', () => ({
 	},
 
 	async delete(ctx) {
+		console.log('[todo.delete] user:', ctx.state?.user?.id, 'params:', ctx.params);
 		const authUser = getAuthUser(ctx);
 
 		if (!authUser) {
@@ -636,23 +703,30 @@ export default factories.createCoreController('api::todo.todo', () => ({
 			return;
 		}
 
-		const children = await strapi.entityService.findMany('api::todo.todo', {
-			filters: {
-				parent: {
-					id: {
-						$eq: existingTodo.id,
-					},
-				},
-			} as any,
-			fields: ['id'],
-			limit: 1,
+		const forceDelete = ctx.query.forceDelete === 'true';
+		console.log('forceDelete query:', ctx.query.forceDelete);
+		const existingWithParent = await strapi.entityService.findOne('api::todo.todo', existingTodo.id, {
+			populate: {
+				parent: true,
+			},
 		});
+		const previousParentId = getRelationId((existingWithParent as any)?.parent ?? null);
 
-		if (Array.isArray(children) && children.length > 0) {
+		const children = await listOwnedDirectChildren(existingTodo.id, authUser.id);
+
+		if (children.length > 0 && !forceDelete) {
 			return ctx.badRequest('Cannot delete a todo that still has children. Reassign or remove children first.');
 		}
 
-		const deletedTodo = await strapi.entityService.delete('api::todo.todo', existingTodo.id);
+		const deleteOrderIds = forceDelete
+			? await collectDeleteOrderIds(existingTodo.id, authUser.id)
+			: [existingTodo.id];
+
+		await deleteTodoIds(deleteOrderIds);
+
+		if (previousParentId !== null) {
+			await recomputeParentCompletion(previousParentId, authUser.id);
+		}
 
 		if (isDebug) {
 			const verify = await strapi.entityService.findMany('api::todo.todo', {
@@ -675,10 +749,16 @@ export default factories.createCoreController('api::todo.todo', () => ({
 
 			const remaining = Array.isArray(verify) ? verify.length : 0;
 			strapi.log.info(
-				`[todo.delete] userId=${authUser.id} todoId=${existingTodo.id} remaining=${remaining}`
+				`[todo.delete] userId=${authUser.id} todoId=${existingTodo.id} forceDelete=${String(forceDelete)} removed=${deleteOrderIds.length} remaining=${remaining}`
 			);
 		}
 
-		return this.transformResponse(sanitizeTodoForResponse(deletedTodo as Record<string, unknown>));
+		return this.transformResponse(
+			sanitizeTodoForResponse({
+				...(existingTodo as Record<string, unknown>),
+				deletedIds: deleteOrderIds,
+				cascade: forceDelete,
+			})
+		);
 	},
 }));

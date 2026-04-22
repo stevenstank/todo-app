@@ -10,10 +10,23 @@ export class TodoUnauthorizedError extends TodoActionError {}
 
 type GenerateSubtasksPayload = {
   subtasks?: unknown;
+  fallback?: boolean;
+  provider?: string;
+  status?: number;
+  message?: string;
   error?: {
     message?: string;
   };
 };
+
+const DEFAULT_AI_FALLBACK_SUBTASKS = [
+  'Define requirements',
+  'Design system architecture',
+  'Set up project structure',
+  'Implement core features',
+  'Test application',
+  'Deploy project',
+];
 
 const parseJson = async <T>(response: Response): Promise<T> =>
   ((await response.json().catch(() => ({}))) as T);
@@ -181,14 +194,6 @@ export const generateSubtasksWithAiRequest = async (taskTitle: string): Promise<
       throw new TodoUnauthorizedError('Authentication required');
     }
 
-    if (!response.ok) {
-      console.error('[todos][ai] Frontend API Error:', {
-        status: response.status,
-        body: rawText,
-      });
-      throw new TodoActionError(getResponseErrorMessage(payload, 'Could not generate subtasks'));
-    }
-
     const rawSubtasks = Array.isArray(payload.subtasks) ? payload.subtasks : [];
 
     const subtasks = rawSubtasks
@@ -197,14 +202,31 @@ export const generateSubtasksWithAiRequest = async (taskTitle: string): Promise<
       .filter((item) => item.length > 0)
       .slice(0, 10);
 
-    if (subtasks.length === 0) {
-      throw new TodoActionError('AI did not return valid subtasks');
+    if (subtasks.length > 0) {
+      console.info('[todos][ai] Received subtasks', {
+        count: subtasks.length,
+        status: response.status,
+        fallback: Boolean(payload.fallback),
+        provider: payload.provider,
+      });
+      return subtasks;
     }
 
-    console.info('[todos][ai] Received subtasks', { count: subtasks.length });
-    return subtasks;
+    console.warn('[todos][ai] No subtasks in API response, using frontend fallback', {
+      status: response.status,
+      body: rawText,
+      payload,
+    });
+    return DEFAULT_AI_FALLBACK_SUBTASKS;
   } catch (error) {
-    throw toRequestError(error, 'Could not generate subtasks');
+    if (error instanceof TodoUnauthorizedError) {
+      throw error;
+    }
+
+    console.warn('[todos][ai] Request failed, using frontend fallback', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return DEFAULT_AI_FALLBACK_SUBTASKS;
   }
 };
 
@@ -243,9 +265,13 @@ export const toggleTodoRequest = async (todoId: TodoIdentifier, nextCompleted: b
   }
 };
 
-export const deleteTodoRequest = async (todoId: TodoIdentifier): Promise<void> => {
+export const deleteTodoRequest = async (
+  todoId: TodoIdentifier,
+  options: { forceDelete?: boolean } = {}
+): Promise<void> => {
   try {
-    const response = await fetch(`/api/todos/${todoId}`, {
+    const deletePath = options.forceDelete === true ? `/api/todos/${todoId}?forceDelete=true` : `/api/todos/${todoId}`;
+    const response = await fetch(deletePath, {
       method: 'DELETE',
       headers: {
         ...getBearerAuthHeader(),

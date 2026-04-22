@@ -5,11 +5,11 @@ import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
 type TodoListProps = {
   todos: TodoUiItem[];
   searchTerm: string;
-  updatingTodoId: TodoIdentifier | null;
+  updatingTodoIds: TodoIdentifier[];
   deletingTodoIds: TodoIdentifier[];
   generatingSubtasksTodoId: TodoIdentifier | null;
   onToggle: (todo: TodoUiItem) => void;
-  onDelete: (todoId: TodoIdentifier) => void;
+  onDelete: (todoId: TodoIdentifier, options?: { forceDelete?: boolean }) => void;
   onCreateSubtask: (parentId: TodoIdentifier, title: string) => Promise<void>;
   onGenerateSubtasks: (todo: TodoUiItem) => Promise<void>;
 };
@@ -17,7 +17,7 @@ type TodoListProps = {
 export default function TodoList({
   todos,
   searchTerm,
-  updatingTodoId,
+  updatingTodoIds,
   deletingTodoIds,
   generatingSubtasksTodoId,
   onToggle,
@@ -144,7 +144,7 @@ export default function TodoList({
           todo={todo}
           level={0}
           visibleTodoIds={visibleTodoIds}
-          updatingTodoId={updatingTodoId}
+          updatingTodoIds={updatingTodoIds}
           deletingTodoIds={deletingTodoIds}
           generatingSubtasksTodoId={generatingSubtasksTodoId}
           activeParentId={activeParentId}

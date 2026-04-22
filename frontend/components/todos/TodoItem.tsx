@@ -1,10 +1,11 @@
+import { useState } from 'react';
 import type { TodoIdentifier, TodoUiItem } from '@/types/todo';
 
 type TodoItemProps = {
   todo: TodoUiItem;
   level: number;
   visibleTodoIds: Set<TodoIdentifier> | null;
-  updatingTodoId: TodoIdentifier | null;
+  updatingTodoIds: TodoIdentifier[];
   deletingTodoIds: TodoIdentifier[];
   generatingSubtasksTodoId: TodoIdentifier | null;
   activeParentId: TodoIdentifier | null;
@@ -16,7 +17,7 @@ type TodoItemProps = {
   onSubtaskEditorToggle: (todoId: TodoIdentifier) => void;
   onSubtaskSubmit: (parentId: TodoIdentifier) => void;
   onToggle: (todo: TodoUiItem) => void;
-  onDelete: (todoId: TodoIdentifier) => void;
+  onDelete: (todoId: TodoIdentifier, options?: { forceDelete?: boolean }) => void;
   onGenerateSubtasks: (todo: TodoUiItem) => Promise<void>;
 };
 
@@ -24,7 +25,7 @@ export default function TodoItem({
   todo,
   level,
   visibleTodoIds,
-  updatingTodoId,
+  updatingTodoIds,
   deletingTodoIds,
   generatingSubtasksTodoId,
   activeParentId,
@@ -39,11 +40,13 @@ export default function TodoItem({
   onDelete,
   onGenerateSubtasks,
 }: TodoItemProps) {
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+
   if (visibleTodoIds && !visibleTodoIds.has(todo.id)) {
     return null;
   }
 
-  const isUpdating = updatingTodoId === todo.id;
+  const isUpdating = updatingTodoIds.includes(todo.id);
   const isDeleting = deletingTodoIds.includes(todo.id);
   const isCreatingSubtask = submittingParentId === todo.id;
   const isGenerating = generatingSubtasksTodoId === todo.id;
@@ -58,6 +61,20 @@ export default function TodoItem({
   const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
   const titleClass = hasChildren ? 'text-base font-semibold' : 'text-sm font-medium';
   const completedClasses = todo.completed ? 'text-green-600 line-through' : 'text-slate-900';
+
+  const handleDeleteClick = () => {
+    if (hasChildren) {
+      setIsDeleteConfirmOpen(true);
+      return;
+    }
+
+    onDelete(todo.id);
+  };
+
+  const handleConfirmDelete = () => {
+    setIsDeleteConfirmOpen(false);
+    onDelete(todo.id, { forceDelete: true });
+  };
 
   return (
     <div className={`space-y-2 ${isChild ? 'border-l border-slate-200 pl-2' : ''}`} style={{ paddingLeft: `${level * 18}px` }}>
@@ -97,6 +114,7 @@ export default function TodoItem({
               <p className={`${titleClass} ${completedClasses}`}>
                 {todo.title}
                 {todo.isOptimistic ? <span className="ml-2 text-xs text-slate-400">Saving...</span> : null}
+                {isUpdating ? <span className="ml-2 text-xs text-slate-400">Saving...</span> : null}
               </p>
               <p className={`text-xs ${todo.completed ? 'text-green-600' : 'text-amber-600'}`}>
                 {todo.completed ? 'Completed' : 'Pending'}
@@ -125,7 +143,7 @@ export default function TodoItem({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => onDelete(todo.id)}
+              onClick={handleDeleteClick}
               disabled={isBusy}
               className="rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -182,7 +200,7 @@ export default function TodoItem({
               todo={child}
               level={level + 1}
               visibleTodoIds={visibleTodoIds}
-              updatingTodoId={updatingTodoId}
+              updatingTodoIds={updatingTodoIds}
               deletingTodoIds={deletingTodoIds}
               generatingSubtasksTodoId={generatingSubtasksTodoId}
               activeParentId={activeParentId}
@@ -198,6 +216,41 @@ export default function TodoItem({
               onGenerateSubtasks={onGenerateSubtasks}
             />
           ))}
+        </div>
+      ) : null}
+
+      {isDeleteConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`delete-confirm-title-${todo.id}`}
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+            <h3 id={`delete-confirm-title-${todo.id}`} className="text-lg font-semibold text-slate-900">
+              This task contains subtasks
+            </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Deleting this task will permanently remove all its subtasks.
+              </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+              >
+                  DELETE ALL
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
