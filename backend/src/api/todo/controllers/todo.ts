@@ -399,25 +399,9 @@ const collectDeleteOrderIds = async (
 };
 
 const deleteTodoIds = async (todoIds: number[]) => {
-	const connection = (strapi.db as any)?.connection;
-
-	if (connection?.transaction) {
-		await connection.transaction(async (trx: any) => {
-			for (const todoId of todoIds) {
-				await (strapi.db.query('api::todo.todo') as any).delete({
-					where: {
-						id: todoId,
-					},
-					transacting: trx,
-				});
-			}
-		});
-		return;
-	}
-
-	for (const todoId of todoIds) {
-		await strapi.entityService.delete('api::todo.todo', todoId);
-	}
+  for (const todoId of todoIds) {
+    await strapi.entityService.delete('api::todo.todo', todoId);
+  }
 };
 
 const validateTitleLength = (
